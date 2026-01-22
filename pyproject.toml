@@ -1,0 +1,50 @@
+[project]
+name = "unitshub"
+version = "0.1.0"
+description = "A unified serving interface for state-of-the-art time-series foundation models."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+
+dependencies = [
+  # ---- core numerical stack ----
+  "torch>=2.2",          # 与 Chronos-2 & TimesFM 2.5 完全兼容
+  "numpy>=1.26",
+  "scipy>=1.12",
+
+  # ---- HF / transformers ecosystem ----
+  "transformers>=4.40",  # TimesFM 2.5 需要 >=4.40
+  "accelerate>=0.29",
+  "huggingface_hub>=0.23",
+
+  # ---- time-series models ----
+  "chronos-forecasting>=2.2.0",
+
+  # ---- API serving ----
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "pydantic>=2.7",
+  "python-multipart>=0.0.9",
+
+  "chronos-forecasting>=2.2"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# ---- uv configuration ----
+[tool.uv]
+managed = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
