@@ -1,7 +1,7 @@
 # =========================
 # builder stage
 # =========================
-FROM debian:bookworm-slim AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 # ---- proxy args (optional, for local build) ----
 ARG HTTP_PROXY
@@ -14,38 +14,35 @@ ENV HTTP_PROXY=${HTTP_PROXY} \
     DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_SYSTEM_PYTHON=1 \
     UV_NO_CACHE=1 \
     HF_HOME=/tmp/hf_cache
 
-WORKDIR /build
+WORKDIR /app
 
 # ---- system deps ----
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
     git \
-    ca-certificates \
     build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -f /usr/lib/python3.*/EXTERNALLY-MANAGED
+    && rm -rf /var/lib/apt/lists/*
 
 # ---- install uv ----
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-RUN uv pip install --system hatchling
+RUN uv venv 
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY . .
-RUN uv pip install --system --no-build-isolation .
+
+RUN uv pip install -r pyproject.toml
 
 # ---- bake model weights ----
 ## 下面脚本将模型下载至/app/models
-RUN python3 scripts/download_models.py
+RUN python scripts/download_models.py
 
 # =========================
 # runtime stage
 # =========================
-FROM debian:bookworm-slim
+FROM python:3.11-slim-bookworm
 
 LABEL maintainer="kingfs"
 LABEL description="Unified serving for time-series foundation models (CPU-only)"
@@ -53,17 +50,19 @@ LABEL description="Unified serving for time-series foundation models (CPU-only)"
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HF_HUB_DISABLE_TELEMETRY=1 \
-    TRANSFORMERS_OFFLINE=1
+    TRANSFORMERS_OFFLINE=1 \
+    PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
 # ---- copy python runtime ----
-COPY --from=builder /usr/local /usr/local
+COPY --from=builder /bin/uv* /bin/
 COPY --from=builder /app/models /app/models
 
 # ---- copy application ----
-COPY --from=builder /build/app /app/app
-COPY --from=builder /build/README.md /app/
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/app /app/app
+# COPY --from=builder /app/README.md /app/
 
 EXPOSE 8000
 

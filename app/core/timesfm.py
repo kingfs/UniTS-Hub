@@ -1,4 +1,4 @@
-from transformers import AutoModelForTimeSeriesForecasting, AutoConfig
+from transformers import TimesFmModelForPrediction
 import torch
 from .interface import TimeSeriesModel
 from typing import List, Dict, Any
@@ -16,11 +16,10 @@ class TimesFMEngine(TimeSeriesModel):
         self.device = torch.device(device)
 
         # Load config + model
-        config = AutoConfig.from_pretrained(model_path)
-        self.model = AutoModelForTimeSeriesForecasting.from_pretrained(
+        self.model = TimesFmModelForPrediction.from_pretrained(
             model_path,
-            config=config,
-            torch_dtype=torch.float32,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="sdpa"
         ).to(self.device)
 
         self.model.eval()

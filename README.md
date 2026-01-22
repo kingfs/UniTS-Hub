@@ -16,10 +16,10 @@ Supported Models:
 
 ```bash
 # To run with Chronos (default)
-docker run -d -p 8000:8000 --gpus all -e MODEL_TYPE=chronos kingfs/units-hub:latest
+docker run -d -p 8000:8000 -e MODEL_TYPE=chronos kingfs/unitshub:latest
 
 # To run with TimesFM
-docker run -d -p 8000:8000 --gpus all -e MODEL_TYPE=timesfm kingfs/units-hub:latest
+docker run -d -p 8000:8000 -e MODEL_TYPE=timesfm kingfs/unitshub:latest
 ```
 
 ### API Usage
