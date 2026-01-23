@@ -1,68 +1,104 @@
-# UniTS-Hub
+# UniTS-Hub 🚀
 
-A unified Docker serving interface for SOTA time-series foundation models.
+A unified Docker serving interface for SOTA (State-of-the-Art) **Time-Series Foundation Models**.
 
-## Overview
+UniTS-Hub provides a standardized FastAPI-based interface to serve multiple time-series foundation models using a single Docker image. It is designed to be easily integrated into AI workflows like **Dify**, **LangChain**, and **Flowise**.
 
-UniTS-Hub provides a standardized FastAPI-based interface to serve multiple state-of-the-art time-series foundation models using a single Docker image. You can switch between models simply by setting an environment variable.
+## ✨ Key Features
 
-Supported Models:
-- **TimesFM** (Google Research)
-- **Chronos** (Amazon Science)
+- **Unified Interface**: One API for multiple foundation models.
+- **SOTA Models Support**: 
+  - 📈 **TimesFM** (Google Research)
+  - 📊 **Chronos** (Amazon Science)
+- **Ready for AI Workflows**: Rich OpenAPI documentation and standard API Key authentication.
+- **Easy Deployment**: Fully containerized with Docker.
 
-## Quick Start
+## 🛠️ Quick Start
 
-### Run with Docker
+### 1. Model Preparation
+Ensure you have the models downloaded in a local directory (e.g., `./models/timesfm` and `./models/chronos`).
 
+### 2. Run with Docker
 ```bash
-# To run with Chronos (default)
-docker run -d -p 8000:8000 -e MODEL_TYPE=chronos kingfs/unitshub:latest
+# Set your API Key
+export API_KEY=your-secret-key
 
-# To run with TimesFM
-docker run -d -p 8000:8000 -e MODEL_TYPE=timesfm kingfs/unitshub:latest
+# Run with TimesFM (Recommended)
+docker run -d -p 8000:8000 \
+  -e MODEL_TYPE=timesfm \
+  -e API_KEY=$API_KEY \
+  -v $(pwd)/models:/app/models \
+  kingfs/unitshub:latest
 ```
 
-### API Usage
+## 🔐 Authentication
+UniTS-Hub uses **X-API-Key** header authentication for all `/predict` requests.
 
-Post a JSON request to `/predict`:
+- **Header Name**: `X-API-Key`
+- **Configuration**: Set the `API_KEY` environment variable in your `.env` or deployment script.
 
-```json
-{
-  "instances": [
-    {
-      "history": [1.0, 2.0, 3.0, 4.0, 5.0]
+## 📝 API Usage
+
+### Interactive Docs
+Once the service is running, visit:
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+
+### Example Request (curl)
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-key" \
+  -d '{
+    "instances": [
+      {
+        "history": [10.5, 12.1, 11.8, 13.2, 12.9],
+        "metadata": {"seq_id": "sensor_01"}
+      }
+    ],
+    "task": {
+      "horizon": 5
+    },
+    "parameters": {
+      "freq": "H"
     }
-  ],
-  "task": {
-    "horizon": 3
-  },
-  "parameters": {
-    "frequency": "1H"
-  }
-}
+  }'
 ```
 
-## Development
+## 🤖 Dify Integration
+UniTS-Hub is designed to work seamlessly as a **Dify Tool**:
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/kingfs/UniTS-Hub.git
-   cd UniTS-Hub
-   ```
+1. Open your Dify dashboard.
+2. Go to **Tools** -> **Create Custom Tool**.
+3. Use the **URL** method and point to `http://your-server-ip:8000/openapi.json`.
+4. Configure **Authentication**:
+   - Type: `API Key`
+   - Header Name: `X-API-Key`
+   - Value: Your configured `API_KEY`.
+5. Now you can use time-series forecasting in your Dify workflows!
 
-2. Install uv (if not already installed):
+## ⚙️ Configuration
+Use environment variables or a `.env` file to configure the service:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MODEL_TYPE` | Model to serve (`timesfm` or `chronos`) | `chronos` |
+| `MODELS_DIR` | Path to the directory containing models | `/app/models` |
+| `API_KEY` | Secret key for API authentication | `unitshub-secret` |
+
+## 🏗️ Local Development
+
+1. **Install uv**:
    ```bash
    curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
-
-3. Install dependencies and setup environment:
+2. **Setup Environment**:
    ```bash
    uv sync
    ```
-
-4. Download models:
+3. **Run Locally**:
    ```bash
-   uv run scripts/download_models.py
+   uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
 ---
