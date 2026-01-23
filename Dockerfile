@@ -1,7 +1,7 @@
 # =========================
 # builder stage
 # =========================
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 # ---- proxy args (optional, for local build) ----
 ARG HTTP_PROXY
@@ -42,7 +42,7 @@ RUN python scripts/download_models.py
 # =========================
 # runtime stage
 # =========================
-FROM python:3.11-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 LABEL maintainer="kingfs"
 LABEL description="Unified serving for time-series foundation models (CPU-only)"

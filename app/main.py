@@ -11,6 +11,9 @@ from app.core.interface import TimeSeriesModel
 from app.core.timesfm import TimesFMEngine
 from app.core.chronos import ChronosEngine
 
+import dotenv
+dotenv.load_dotenv()
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("unitshub")
@@ -18,6 +21,7 @@ logger = logging.getLogger("unitshub")
 # Global model instance
 MODEL_INSTANCE: Optional[TimeSeriesModel] = None
 MODEL_TYPE: str = os.getenv("MODEL_TYPE", "chronos").lower()
+MODEL_DIR = os.getenv("MODELS_DIR", "/app/models")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,12 +36,12 @@ async def lifespan(app: FastAPI):
         if MODEL_TYPE == "timesfm":
             MODEL_INSTANCE = TimesFMEngine()
             # Path inside Docker container
-            model_path = "/app/models/timesfm"
+            model_path = f"{MODEL_DIR}/timesfm"
             # In local dev if folder doesn't exist, we might want a fallback or clear error
             MODEL_INSTANCE.load(model_path, device)
         elif MODEL_TYPE == "chronos":
             MODEL_INSTANCE = ChronosEngine()
-            model_path = "/app/models/chronos"
+            model_path = f"{MODEL_DIR}/chronos"
             MODEL_INSTANCE.load(model_path, device)
         else:
             raise ValueError(f"Unsupported MODEL_TYPE: {MODEL_TYPE}")

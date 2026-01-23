@@ -10,7 +10,30 @@ env:
   REGISTRY_IMAGE: kingfs/unitshub
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run Tests
+        run: uv run pytest
+
   build:
+    needs: test
     strategy:
       fail-fast: false
       matrix:
