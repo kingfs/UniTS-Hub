@@ -1,13 +1,15 @@
 import os
 import torch
 import logging
-from fastapi import FastAPI, HTTPException, Request, Depends, Security
+from fastapi import FastAPI, HTTPException, Request, Depends, Security, File, UploadFile, Form
 from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from typing import Optional
+import io
+import polars as pl
 
-from app.schemas import UnifiedRequest, UnifiedResponse
+from app.schemas import UnifiedRequest, UnifiedResponse, TimeSeriesInstance, PredictionTask
 from app.core.interface import TimeSeriesModel
 from app.core.timesfm import TimesFMEngine
 from app.core.chronos import ChronosEngine
@@ -123,6 +125,53 @@ async def predict(
         )
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post(
+    "/predict/csv",
+    response_model=UnifiedResponse,
+    summary="Generate forecasts from uploaded CSV",
+    description="Upload a CSV file, specify the target column and horizon to receive forecasts.",
+    operation_id="predict_csv"
+)
+async def predict_csv(
+    file: UploadFile = File(...),
+    target_column: str = Form(...),
+    horizon: int = Form(...),
+    freq: str = Form("auto"),
+    api_key: str = Depends(get_api_key)
+):
+    if not MODEL_INSTANCE:
+        raise HTTPException(status_code=503, detail=f"Model [{MODEL_TYPE}] is not initialized.")
+
+    try:
+        # Read CSV using Polars
+        contents = await file.read()
+        df = pl.read_csv(io.BytesIO(contents))
+        
+        if target_column not in df.columns:
+            raise HTTPException(status_code=400, detail=f"Target column '{target_column}' not found in CSV.")
+        
+        # Extract data (convert to list of floats, dropping nulls)
+        history = df[target_column].drop_nulls().to_list()
+        
+        # Prepare request-like structure
+        instances = [TimeSeriesInstance(history=history, metadata={"column": target_column})]
+        
+        logger.info(f"Processing CSV prediction (Polars): column={target_column}, len={len(history)}, horizon={horizon}")
+        
+        # Perform inference
+        forecasts = MODEL_INSTANCE.predict([history], horizon, freq=freq)
+        
+        return UnifiedResponse(
+            model=MODEL_TYPE,
+            forecasts=forecasts
+        )
+        
+    except pl.exceptions.NoDataError:
+        raise HTTPException(status_code=400, detail="The uploaded CSV file is empty.")
+    except Exception as e:
+        logger.error(f"CSV Prediction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.exception_handler(Exception)

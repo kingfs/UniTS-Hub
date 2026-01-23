@@ -44,6 +44,11 @@ Once the service is running, visit:
 - **Swagger UI**: `http://localhost:8000/docs`
 - **ReDoc**: `http://localhost:8000/redoc`
 
+### Documentation
+Detailed guides can be found in the [docs](./docs) directory:
+- [Core Concepts](./docs/getting-started/core-concepts.md)
+- [CSV Prediction Guide](./docs/api-guide/csv-prediction.md)
+
 ### Example Request (curl)
 ```bash
 curl -X POST http://localhost:8000/predict \
@@ -64,6 +69,20 @@ curl -X POST http://localhost:8000/predict \
     }
   }'
 ```
+
+### Example CSV Upload (curl)
+For bulk data, you can upload a CSV file:
+
+```bash
+curl -X POST http://localhost:8000/predict/csv \
+  -H "X-API-Key: your-secret-key" \
+  -F "file=@data.csv" \
+  -F "target_column=TOTAIRFL" \
+  -F "horizon=12"
+```
+
+> [!NOTE]
+> For a detailed guide on CSV parameters and examples, see **[CSV Prediction Guide](docs/api-guide/csv-prediction.md)**.
 
 ## 🤖 Dify Integration
 UniTS-Hub is designed to work seamlessly as a **Dify Tool**:
