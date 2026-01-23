@@ -5,7 +5,7 @@ import os
 URL = "http://localhost:8000/predict/csv"
 API_KEY = "unitshub-secret"
 HEADERS = {
-    "X-API-Key": API_KEY
+    "Authorization": f'Bearer {API_KEY}'
 }
 
 # 1. Create a sample CSV file for demonstration

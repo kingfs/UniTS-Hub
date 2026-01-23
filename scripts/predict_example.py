@@ -5,7 +5,7 @@ import json
 URL = "http://localhost:8000/predict"
 API_KEY = "unitshub-secret"  # Default API key, change if needed
 HEADERS = {
-    "X-API-Key": API_KEY,
+    "Authorization": f'Bearer {API_KEY}',
     "Content-Type": "application/json"
 }
 

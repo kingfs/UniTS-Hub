@@ -32,9 +32,9 @@ docker run -d -p 8000:8000 \
 ```
 
 ## 🔐 Authentication
-UniTS-Hub uses **X-API-Key** header authentication for all `/predict` requests.
+UniTS-Hub uses **Authorization** header authentication for all `/predict` requests.
 
-- **Header Name**: `X-API-Key`
+- **Header Name**: `Authorization`
 - **Configuration**: Set the `API_KEY` environment variable in your `.env` or deployment script.
 
 ## 📝 API Usage
@@ -53,7 +53,7 @@ Detailed guides can be found in the [docs](./docs) directory:
 ```bash
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: your-secret-key" \
+  -H "Authorization: Bearer your-secret-key" \
   -d '{
     "instances": [
       {
@@ -75,7 +75,7 @@ For bulk data, you can upload a CSV file:
 
 ```bash
 curl -X POST http://localhost:8000/predict/csv \
-  -H "X-API-Key: your-secret-key" \
+  -H "Authorization: Bearer your-secret-key" \
   -F "file=@data.csv" \
   -F "target_column=TOTAIRFL" \
   -F "horizon=12"
@@ -91,8 +91,8 @@ UniTS-Hub is designed to work seamlessly as a **Dify Tool**:
 2. Go to **Tools** -> **Create Custom Tool**.
 3. Use the **URL** method and point to `http://your-server-ip:8000/openapi.json`.
 4. Configure **Authentication**:
-   - Type: `API Key`
-   - Header Name: `X-API-Key`
+   - Type: `BearerAuth`
+   - Header Name: `Authorization`
    - Value: Your configured `API_KEY`.
 5. Now you can use time-series forecasting in your Dify workflows!
 

@@ -24,7 +24,7 @@ UniTS-Hub uses **Polars** for high-performance CSV processing. It handles large 
 
 ```bash
 curl -X POST http://localhost:8000/predict/csv \
-     -H "X-API-Key: your-secret-key" \
+     -H "Authorization: Bearer your-secret-key" \
      -F "file=@your_data.csv" \
      -F "target_column=TOTAIRFL" \
      -F "horizon=12"
@@ -43,7 +43,7 @@ data = {
     'horizon': 12
 }
 response = requests.post("http://localhost:8000/predict/csv", 
-                         headers={"X-API-Key": "your-key"}, 
+                         headers={"Authorization": "Bearer your-key"}, 
                          files=files, 
                          data=data)
 print(response.json())

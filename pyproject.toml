@@ -10,23 +10,19 @@ dependencies = [
   "torch>=2.2",          # 与 Chronos-2 & TimesFM 2.5 完全兼容
   "numpy>=1.26",
   "scipy>=1.12",
-
   # ---- HF / transformers ecosystem ----
   "transformers>=4.40",  # TimesFM 2.5 需要 >=4.40
   "accelerate>=0.29",
   "huggingface_hub>=0.23",
-
   # ---- time-series models ----
   "chronos-forecasting>=2.2.0",
-
   # ---- API serving ----
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
   "pydantic>=2.7",
   "python-multipart>=0.0.9",
   "polars>=1.0.0",
-
-  "chronos-forecasting>=2.2"
+  "chronos-forecasting>=2.2",
 ]
 
 [build-system]

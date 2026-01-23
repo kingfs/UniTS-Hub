@@ -23,6 +23,6 @@ PAYLOAD='{
 
 # Execute Curl
 curl -X POST "$URL" \
-     -H "X-API-Key: $API_KEY" \
+     -H "Authorization: Bearer $API_KEY" \
      -H "Content-Type: application/json" \
      -d "$PAYLOAD"

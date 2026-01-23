@@ -2,13 +2,13 @@ import os
 import torch
 import logging
 from fastapi import FastAPI, HTTPException, Request, Depends, Security, File, UploadFile, Form
-from fastapi.security import APIKeyHeader
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from typing import Optional
 import io
 import polars as pl
-
+from fastapi.openapi.utils import get_openapi
 from app.schemas import UnifiedRequest, UnifiedResponse, TimeSeriesInstance, PredictionTask
 from app.core.interface import TimeSeriesModel
 from app.core.timesfm import TimesFMEngine
@@ -26,17 +26,14 @@ MODEL_INSTANCE: Optional[TimeSeriesModel] = None
 MODEL_TYPE: str = os.getenv("MODEL_TYPE", "chronos").lower()
 MODEL_DIR = os.getenv("MODELS_DIR", "/app/models")
 API_KEY = os.getenv("API_KEY", "unitshub-secret")
-API_KEY_NAME = "X-API-Key"
 
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+security = HTTPBearer(auto_error=False)
 
-async def get_api_key(api_key: str = Security(api_key_header)):
-    if api_key == API_KEY:
-        return api_key
-    raise HTTPException(
-        status_code=401,
-        detail="Invalid or missing API Key"
-    )
+async def get_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
+    token = credentials.credentials if credentials else None
+    if token == API_KEY:
+        return token
+    raise HTTPException(status_code=401, detail="Invalid or missing API Key")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -83,8 +80,44 @@ Designed for seamless integration with AI workflows like Dify and LangChain.
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    servers=[
+        {"url": "http://localhost:8000", "description": "Local Development"},
+        {"url": "http://timesfm:8000", "description": "Google timesfm model"},
+        {"url": "http://chronos:8000", "description": "Amazon chronos model"},
+    ]
 )
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "Token"
+        }
+    }
+
+    openapi_schema["security"] = [{"BearerAuth": []}]
+    
+    openapi_schema["servers"] = [
+        {"url": "http://localhost:8000", "description": "Local Development"},
+        {"url": "https://unitshub.example.com", "description": "Production"},
+    ]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
 
 @app.get("/health")
 async def health_check():
