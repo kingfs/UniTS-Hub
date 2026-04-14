@@ -4,6 +4,7 @@ Welcome to the UniTS-Hub documentation. This guide will help you understand how 
 
 ## 🧭 Navigation
 
+- **[Architecture v2](architecture-v2.md)**: Target runtime, API, MCP, and release design for UniTS-Hub v2.
 - **[Getting Started](getting-started/core-concepts.md)**: Core concepts of Foundation Models for time-series.
 - **Scenarios**:
   - **[Retail Demand Forecasting](scenarios/retail-demand.md)**: Predicting sales and inventory needs.

@@ -6,14 +6,16 @@ import numpy as np
 import torch
 
 from app.providers.base import ModelProvider
-from app.providers.shared import (
-    MULTIVARIATE_INPUT_SCHEMA,
-    POINT_FORECAST_OUTPUT_SCHEMA,
-    UNIVARIATE_SERIES_SCHEMA,
-    forecast_result,
+from app.providers.shared import forecast_result
+from app.schemas import (
+    ChronosForecastRequest,
+    ChronosForecastResponse,
+    ModelDescriptor,
+    TaskDefinition,
+    TimesFMForecastRequest,
+    TimesFMForecastResponse,
     schema_bundle,
 )
-from app.schemas import ModelDescriptor, TaskDefinition
 
 
 class ChronosProvider(ModelProvider):
@@ -40,45 +42,30 @@ class ChronosProvider(ModelProvider):
             TaskDefinition(
                 name="forecast_quantile",
                 title="Quantile Forecast",
-                description="Quantile forecast for univariate or multivariate inputs.",
-                input_schema=MULTIVARIATE_INPUT_SCHEMA,
-                output_schema=POINT_FORECAST_OUTPUT_SCHEMA,
-            ),
-            TaskDefinition(
-                name="forecast_multivariate",
-                title="Multivariate Forecast",
-                description="Forecast multiple target dimensions together.",
-                input_schema=MULTIVARIATE_INPUT_SCHEMA,
-                output_schema=POINT_FORECAST_OUTPUT_SCHEMA,
-            ),
-            TaskDefinition(
-                name="forecast_with_covariates",
-                title="Covariate Forecast",
-                description="Forecast with past and future covariates when supported by Chronos-2.",
-                input_schema=MULTIVARIATE_INPUT_SCHEMA,
-                output_schema=POINT_FORECAST_OUTPUT_SCHEMA,
+                description="Quantile forecast for a univariate time series.",
+                input_schema=ChronosForecastRequest.model_json_schema(),
+                output_schema=ChronosForecastResponse.model_json_schema(),
             ),
         ]
         return ModelDescriptor(
             id="chronos",
             name="Chronos-2",
             version="2",
-            description="Amazon Chronos-2 for quantile, multivariate, and covariate-aware forecasting.",
-            input_modes=["univariate", "multivariate", "covariates"],
+            description="Amazon Chronos-2 for quantile forecasting.",
+            input_modes=["univariate"],
             output_modes=["quantile_forecast"],
             tasks=tasks,
             metadata={
                 "default_quantiles": self.quantiles or [0.1, 0.5, 0.9],
+                "supports_covariates": False,
+                "supports_multivariate": False,
             },
         )
 
     def task_schemas(self) -> Dict[str, Dict[str, Any]]:
-        bundle = schema_bundle(MULTIVARIATE_INPUT_SCHEMA, POINT_FORECAST_OUTPUT_SCHEMA)
         return {
-            "forecast_quantile": bundle,
-            "forecast_multivariate": bundle,
-            "forecast_with_covariates": bundle,
-            "forecast_point": schema_bundle(UNIVARIATE_SERIES_SCHEMA, POINT_FORECAST_OUTPUT_SCHEMA),
+            "forecast_quantile": schema_bundle(ChronosForecastRequest, ChronosForecastResponse),
+            "forecast_point": schema_bundle(TimesFMForecastRequest, TimesFMForecastResponse),
         }
 
     def default_legacy_task(self) -> str | None:
@@ -90,9 +77,21 @@ class ChronosProvider(ModelProvider):
         if task not in self.task_schemas():
             raise ValueError(f"Chronos does not support task [{task}].")
 
-        horizon = int(payload["horizon"])
-        contexts = self._build_context(payload.get("series") or [])
-        quantiles = payload.get("quantiles") or self.quantiles or [0.1, 0.5, 0.9]
+        if "series" in payload and payload["series"] and isinstance(payload["series"][0], dict):
+            horizon = int(payload["horizon"])
+            contexts = self._build_context(payload.get("series") or [])
+            quantiles = payload.get("quantiles") or self.quantiles or [0.1, 0.5, 0.9]
+        else:
+            if task == "forecast_quantile":
+                request = ChronosForecastRequest.model_validate(payload)
+                horizon = request.horizon
+                contexts = [torch.tensor(request.series, dtype=torch.float32)]
+                quantiles = request.quantiles or self.quantiles or [0.1, 0.5, 0.9]
+            else:
+                request = TimesFMForecastRequest.model_validate(payload)
+                horizon = request.horizon
+                contexts = [torch.tensor(request.history, dtype=torch.float32)]
+                quantiles = self.quantiles or [0.1, 0.5, 0.9]
 
         try:
             forecasts = self.pipeline.predict(
@@ -115,10 +114,7 @@ class ChronosProvider(ModelProvider):
         contexts: List[torch.Tensor] = []
         for item in series:
             target = item["target"]
-            if target and isinstance(target[0], list):
-                contexts.append(torch.tensor(target, dtype=torch.float32))
-            else:
-                contexts.append(torch.tensor(target, dtype=torch.float32))
+            contexts.append(torch.tensor(target, dtype=torch.float32))
         return contexts
 
     def _format_quantile_forecasts(

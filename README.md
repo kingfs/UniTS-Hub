@@ -175,6 +175,7 @@ These are marked as compatibility interfaces. New agent integrations should pref
 | `MODELS_DIR` | Base directory containing model weights | `/app/models` |
 | `API_KEY` | Bearer token used by API and MCP | `unitshub-secret` |
 | `KRONOS_TOKENIZER_PATH` | Optional local tokenizer path for Kronos | unset |
+| `KRONOS_RUNTIME_PATH` | Location of the official Kronos source runtime inside the container | `/opt/kronos-runtime` |
 
 ## Model assets
 
@@ -203,4 +204,15 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 - `TimesFM` uses the Hugging Face `transformers` runtime by default and can expose additional quantile capability when the official `timesfm` runtime is installed.
 - `Chronos-2` is loaded through `chronos-forecasting`.
-- `Kronos` requires the official Kronos runtime code to be importable in the Python environment.
+- `Kronos` is installed into the image from the official source repository during Docker build, then loaded from `KRONOS_RUNTIME_PATH`.
+
+## Kronos runtime packaging
+
+For `MODEL_TYPE=kronos`, the Docker build now:
+
+1. Clones the official runtime from `https://github.com/shiyu-coder/Kronos.git`
+2. Checks out `KRONOS_RUNTIME_REF` (default: `master`)
+3. Installs the runtime's `requirements.txt`
+4. Copies the runtime source into `/opt/kronos-runtime` in the final image
+
+This removes the previous requirement that the deployment environment manually provide an importable `model.py`.

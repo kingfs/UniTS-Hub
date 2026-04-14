@@ -16,11 +16,19 @@ from app.config import Settings
 from app.mcp import handle_mcp_request
 from app.providers import ModelProvider, create_provider
 from app.schemas import (
+    ChronosForecastRequest,
+    ChronosForecastResponse,
     InvokeRequest,
     InvokeResponse,
+    KronosForecastRequest,
+    KronosForecastResponse,
+    KronosGeneratePathsRequest,
+    KronosGeneratePathsResponse,
     MCPRpcRequest,
     ModelSchemaResponse,
     TimeSeriesInstance,
+    TimesFMForecastRequest,
+    TimesFMForecastResponse,
     UnifiedRequest,
     UnifiedResponse,
 )
@@ -92,6 +100,14 @@ def create_app(
                 detail=f"Model [{settings.model_type}] is not loaded.",
             )
         return model_provider
+
+    def require_model(current_provider: ModelProvider, model_id: str) -> None:
+        active_model = current_provider.descriptor().id
+        if active_model != model_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Route is only available when model [{model_id}] is active. Current model is [{active_model}].",
+            )
 
     def custom_openapi():
         if app.openapi_schema:
@@ -167,6 +183,50 @@ def create_app(
             output=output,
             metadata={"api": "rest-v2"},
         )
+
+    @app.post("/timesfm/forecast", response_model=TimesFMForecastResponse)
+    async def timesfm_forecast(
+        request: TimesFMForecastRequest,
+        _: str = Depends(get_api_key),
+        current_provider: ModelProvider = Depends(get_provider),
+    ) -> TimesFMForecastResponse:
+        require_model(current_provider, "timesfm")
+        output = current_provider.invoke("forecast_point", request.model_dump(mode="json"))
+        forecast = output["forecasts"][0]
+        return TimesFMForecastResponse(mean=forecast["mean"])
+
+    @app.post("/chronos/forecast", response_model=ChronosForecastResponse)
+    async def chronos_forecast(
+        request: ChronosForecastRequest,
+        _: str = Depends(get_api_key),
+        current_provider: ModelProvider = Depends(get_provider),
+    ) -> ChronosForecastResponse:
+        require_model(current_provider, "chronos")
+        output = current_provider.invoke("forecast_quantile", request.model_dump(mode="json"))
+        forecast = output["forecasts"][0]
+        return ChronosForecastResponse(mean=forecast["mean"], quantiles=forecast.get("quantiles") or {})
+
+    @app.post("/kronos/forecast-ohlcv", response_model=KronosForecastResponse)
+    async def kronos_forecast_ohlcv(
+        request: KronosForecastRequest,
+        _: str = Depends(get_api_key),
+        current_provider: ModelProvider = Depends(get_provider),
+    ) -> KronosForecastResponse:
+        require_model(current_provider, "kronos")
+        output = current_provider.invoke("forecast_ohlcv", request.model_dump(mode="json"))
+        forecast = output["forecasts"][0]
+        return KronosForecastResponse.model_validate(forecast)
+
+    @app.post("/kronos/generate-paths", response_model=KronosGeneratePathsResponse)
+    async def kronos_generate_paths(
+        request: KronosGeneratePathsRequest,
+        _: str = Depends(get_api_key),
+        current_provider: ModelProvider = Depends(get_provider),
+    ) -> KronosGeneratePathsResponse:
+        require_model(current_provider, "kronos")
+        output = current_provider.invoke("generate_paths", request.model_dump(mode="json"))
+        forecast = output["forecasts"][0]
+        return KronosGeneratePathsResponse.model_validate(forecast)
 
     @app.post("/mcp")
     async def mcp(

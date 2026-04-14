@@ -27,7 +27,6 @@ def handle_mcp_request(provider: ModelProvider, request: Dict[str, Any]) -> MCPR
                     "serverInfo": SERVER_INFO,
                     "capabilities": {
                         "tools": {"listChanged": False},
-                        "resources": {"subscribe": False, "listChanged": False},
                     },
                 },
             )
@@ -41,12 +40,21 @@ def handle_mcp_request(provider: ModelProvider, request: Dict[str, Any]) -> MCPR
                     "inputSchema": {"type": "object", "properties": {}},
                 },
                 {
-                    "name": "get_model_schema",
-                    "description": "Return all task schemas for the current model.",
-                    "inputSchema": {"type": "object", "properties": {}},
+                    "name": "get_task_schema",
+                    "description": "Return the input/output schema for one task on the current model.",
+                    "inputSchema": {
+                        "type": "object",
+                        "required": ["task"],
+                        "properties": {
+                            "task": {
+                                "type": "string",
+                                "enum": [task.name for task in descriptor.tasks],
+                            }
+                        },
+                    },
                 },
                 {
-                    "name": "invoke_model",
+                    "name": "invoke_task",
                     "description": "Invoke a specific task on the current model.",
                     "inputSchema": {
                         "type": "object",
@@ -63,46 +71,15 @@ def handle_mcp_request(provider: ModelProvider, request: Dict[str, Any]) -> MCPR
             ]
             return MCPRpcResponse(id=rpc_id, result={"tools": tools})
 
-        if method == "resources/list":
-            return MCPRpcResponse(
-                id=rpc_id,
-                result={
-                    "resources": [
-                        {
-                            "uri": "unitshub://model/current",
-                            "name": "Current model descriptor",
-                            "mimeType": "application/json",
-                        },
-                        {
-                            "uri": "unitshub://model/schema",
-                            "name": "Current model schemas",
-                            "mimeType": "application/json",
-                        },
-                    ]
-                },
-            )
-
-        if method == "resources/read":
-            uri = params.get("uri")
-            if uri == "unitshub://model/current":
-                contents = provider.descriptor().model_dump(mode="json")
-            elif uri == "unitshub://model/schema":
-                contents = provider.task_schemas()
-            else:
-                raise ValueError(f"Unknown resource [{uri}]")
-            return MCPRpcResponse(
-                id=rpc_id,
-                result={"contents": [{"uri": uri, "mimeType": "application/json", "text": json.dumps(contents)}]},
-            )
-
         if method == "tools/call":
             name = params.get("name")
             arguments = params.get("arguments") or {}
             if name == "get_current_model":
                 output = provider.descriptor().model_dump(mode="json")
-            elif name == "get_model_schema":
-                output = provider.task_schemas()
-            elif name == "invoke_model":
+            elif name == "get_task_schema":
+                task = arguments["task"]
+                output = provider.task_schemas()[task]
+            elif name == "invoke_task":
                 output = provider.invoke(arguments["task"], arguments["input"])
             else:
                 raise ValueError(f"Unknown tool [{name}]")

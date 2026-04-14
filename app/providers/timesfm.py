@@ -5,13 +5,14 @@ from typing import Any, Dict, List
 import torch
 
 from app.providers.base import ModelProvider
-from app.providers.shared import (
-    POINT_FORECAST_OUTPUT_SCHEMA,
-    UNIVARIATE_SERIES_SCHEMA,
-    forecast_result,
+from app.providers.shared import forecast_result
+from app.schemas import (
+    ModelDescriptor,
+    TaskDefinition,
+    TimesFMForecastRequest,
+    TimesFMForecastResponse,
     schema_bundle,
 )
-from app.schemas import ModelDescriptor, TaskDefinition
 
 
 FREQ_MAP = {
@@ -45,23 +46,16 @@ class TimesFMProvider(ModelProvider):
 
     def load(self, model_path: str, device: str) -> None:
         self.device = device
-        try:
-            import timesfm
+        from transformers import TimesFmModelForPrediction
 
-            self.model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(model_path)
-            self.runtime = "timesfm"
-        except ImportError:
-            from transformers import TimesFmModelForPrediction
-
-            torch_device = torch.device(device)
-            dtype = torch.float32 if torch_device.type == "cpu" else torch.bfloat16
-            self.model = TimesFmModelForPrediction.from_pretrained(
-                model_path,
-                torch_dtype=dtype,
-                attn_implementation="sdpa",
-            ).to(torch_device)
-            self.model.eval()
-            self.runtime = "transformers"
+        torch_device = torch.device(device)
+        dtype = torch.float32 if torch_device.type == "cpu" else torch.bfloat16
+        self.model = TimesFmModelForPrediction.from_pretrained(
+            model_path,
+            torch_dtype=dtype,
+            attn_implementation="sdpa",
+        ).to(torch_device)
+        self.model.eval()
         self.loaded = True
 
     def descriptor(self) -> ModelDescriptor:
@@ -69,31 +63,21 @@ class TimesFMProvider(ModelProvider):
             TaskDefinition(
                 name="forecast_point",
                 title="Point Forecast",
-                description="Point forecast for one or more univariate series.",
-                input_schema=UNIVARIATE_SERIES_SCHEMA,
-                output_schema=POINT_FORECAST_OUTPUT_SCHEMA,
+                description="Point forecast for a univariate time series.",
+                input_schema=TimesFMForecastRequest.model_json_schema(),
+                output_schema=TimesFMForecastResponse.model_json_schema(),
             )
         ]
-        if self.runtime == "timesfm":
-            tasks.append(
-                TaskDefinition(
-                    name="forecast_quantile",
-                    title="Quantile Forecast",
-                    description="Quantile forecast when the official TimesFM runtime is available.",
-                    input_schema=UNIVARIATE_SERIES_SCHEMA,
-                    output_schema=POINT_FORECAST_OUTPUT_SCHEMA,
-                )
-            )
         return ModelDescriptor(
             id="timesfm",
             name="TimesFM 2.5",
             version="2.5",
             description="Google Time Series Foundation Model optimized for univariate forecasting.",
             input_modes=["univariate"],
-            output_modes=["point_forecast", "quantile_forecast"] if self.runtime == "timesfm" else ["point_forecast"],
+            output_modes=["point_forecast"],
             tasks=tasks,
             metadata={
-                "supports_quantiles": self.runtime == "timesfm",
+                "supports_quantiles": False,
                 "supports_covariates": False,
                 "supports_multivariate": False,
                 "runtime": self.runtime,
@@ -101,47 +85,26 @@ class TimesFMProvider(ModelProvider):
         )
 
     def task_schemas(self) -> Dict[str, Dict[str, Any]]:
-        schemas = {
-            "forecast_point": schema_bundle(
-                UNIVARIATE_SERIES_SCHEMA,
-                POINT_FORECAST_OUTPUT_SCHEMA,
-            )
+        return {
+            "forecast_point": schema_bundle(TimesFMForecastRequest, TimesFMForecastResponse),
         }
-        if self.runtime == "timesfm":
-            schemas["forecast_quantile"] = schema_bundle(
-                UNIVARIATE_SERIES_SCHEMA,
-                POINT_FORECAST_OUTPUT_SCHEMA,
-            )
-        return schemas
 
     def invoke(self, task: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        if task not in self.task_schemas():
+        if task != "forecast_point":
             raise ValueError(f"TimesFM does not support task [{task}].")
         if self.model is None:
             raise RuntimeError("TimesFM model not loaded.")
 
-        series = payload.get("series") or []
-        horizon = int(payload["horizon"])
-        histories = [item["target"] for item in series]
+        if "series" in payload:
+            histories = [item["target"] for item in (payload.get("series") or [])]
+            horizon = int(payload["horizon"])
+            freq_raw = str(payload.get("frequency") or payload.get("freq") or "0").lower()
+        else:
+            request = TimesFMForecastRequest.model_validate(payload)
+            histories = [request.history]
+            horizon = request.horizon
+            freq_raw = request.frequency.lower()
 
-        if self.runtime == "timesfm":
-            point_forecast, quantile_forecast = self.model.forecast(
-                inputs=histories,
-                horizon=horizon,
-                return_forecast_on_context=False,
-            )
-            forecasts = []
-            quantiles = payload.get("quantiles") or [0.1, 0.5, 0.9]
-            for idx, mean in enumerate(point_forecast):
-                quantile_map: Dict[str, List[float]] = {}
-                if task == "forecast_quantile":
-                    for q_idx, q in enumerate(quantiles):
-                        if q_idx < len(quantile_forecast[idx]):
-                            quantile_map[str(q)] = quantile_forecast[idx][q_idx][:horizon].tolist()
-                forecasts.append(forecast_result(mean[:horizon].tolist(), quantile_map))
-            return {"forecasts": forecasts}
-
-        freq_raw = str(payload.get("frequency") or payload.get("freq") or "0").lower()
         freq_idx = FREQ_MAP.get(freq_raw, 0)
 
         inputs = torch.tensor(histories, dtype=self.model.dtype, device=self.model.device)

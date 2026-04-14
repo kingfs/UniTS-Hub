@@ -11,6 +11,7 @@ class Settings:
     api_key: str = "unitshub-secret"
     app_version: str = "2.0.0"
     kronos_tokenizer_path: str | None = None
+    kronos_runtime_path: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -20,6 +21,7 @@ class Settings:
             api_key=os.getenv("API_KEY", "unitshub-secret"),
             app_version=os.getenv("APP_VERSION", "2.0.0"),
             kronos_tokenizer_path=os.getenv("KRONOS_TOKENIZER_PATH"),
+            kronos_runtime_path=os.getenv("KRONOS_RUNTIME_PATH"),
         )
 
     def model_path(self) -> str:

@@ -14,5 +14,8 @@ def create_provider(settings: Settings) -> ModelProvider:
     if model_type in {"chronos", "chronos2", "chronos-2"}:
         return ChronosProvider()
     if model_type == "kronos":
-        return KronosProvider(tokenizer_path=settings.kronos_tokenizer_path)
+        return KronosProvider(
+            tokenizer_path=settings.kronos_tokenizer_path,
+            runtime_path=settings.kronos_runtime_path,
+        )
     raise ValueError(f"Unsupported MODEL_TYPE: {settings.model_type}")
