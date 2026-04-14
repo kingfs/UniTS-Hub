@@ -9,5 +9,5 @@ rm -rf "${KRONOS_RUNTIME_PATH}"
 git clone --depth 1 --branch "${KRONOS_RUNTIME_REF}" "${KRONOS_RUNTIME_REPO}" "${KRONOS_RUNTIME_PATH}"
 
 if [ -f "${KRONOS_RUNTIME_PATH}/requirements.txt" ]; then
-  python -m pip install -r "${KRONOS_RUNTIME_PATH}/requirements.txt"
+  uv pip install -r "${KRONOS_RUNTIME_PATH}/requirements.txt"
 fi
