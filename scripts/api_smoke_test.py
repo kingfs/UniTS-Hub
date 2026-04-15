@@ -62,6 +62,11 @@ def assert_list_length(value: Any, expected: int, message: str) -> None:
     assert_true(len(value) == expected, f"{message}: expected length={expected}, got length={len(value)}")
 
 
+def print_json(label: str, payload: Any) -> None:
+    print(f"[info] {label}:")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 def timesfm_payload(horizon: int) -> dict[str, Any]:
     return {
         "task": "forecast_point",
@@ -143,9 +148,11 @@ def verify_common_endpoints(base_url: str, api_key: str | None) -> dict[str, Any
 
 def verify_timesfm(base_url: str, api_key: str | None, horizon: int) -> None:
     payload = timesfm_payload(horizon)
+    print_json("timesfm request", payload)
     _, invoke = request_json("POST", build_url(base_url, "/models/current/invoke"), api_key=api_key, payload=payload)
     assert_true(invoke.get("task") == "forecast_point", "invoke task should be forecast_point")
     assert_list_length(invoke["output"]["forecasts"][0]["mean"], horizon, "timesfm invoke mean")
+    print_json("timesfm invoke response", invoke)
 
     _, direct = request_json(
         "POST",
@@ -154,16 +161,19 @@ def verify_timesfm(base_url: str, api_key: str | None, horizon: int) -> None:
         payload=payload["input"],
     )
     assert_list_length(direct["mean"], horizon, "timesfm direct mean")
+    print_json("timesfm direct response", direct)
 
 
 def verify_chronos(base_url: str, api_key: str | None, horizon: int) -> None:
     payload = chronos_payload(horizon)
+    print_json("chronos request", payload)
     _, invoke = request_json("POST", build_url(base_url, "/models/current/invoke"), api_key=api_key, payload=payload)
     forecast = invoke["output"]["forecasts"][0]
     assert_true(invoke.get("task") == "forecast_quantile", "invoke task should be forecast_quantile")
     assert_list_length(forecast["mean"], horizon, "chronos invoke mean")
     for quantile in ("0.1", "0.5", "0.9"):
         assert_list_length(forecast["quantiles"][quantile], horizon, f"chronos quantile {quantile}")
+    print_json("chronos invoke response", invoke)
 
     _, direct = request_json(
         "POST",
@@ -174,10 +184,12 @@ def verify_chronos(base_url: str, api_key: str | None, horizon: int) -> None:
     assert_list_length(direct["mean"], horizon, "chronos direct mean")
     for quantile in ("0.1", "0.5", "0.9"):
         assert_list_length(direct["quantiles"][quantile], horizon, f"chronos direct quantile {quantile}")
+    print_json("chronos direct response", direct)
 
 
 def verify_kronos(base_url: str, api_key: str | None, horizon: int, num_samples: int) -> None:
     forecast_payload = kronos_forecast_payload(horizon)
+    print_json("kronos forecast request", forecast_payload)
     _, invoke_forecast = request_json(
         "POST",
         build_url(base_url, "/models/current/invoke"),
@@ -187,6 +199,7 @@ def verify_kronos(base_url: str, api_key: str | None, horizon: int, num_samples:
     candles = invoke_forecast["output"]["forecasts"][0]["candles"]
     assert_true(invoke_forecast.get("task") == "forecast_ohlcv", "invoke task should be forecast_ohlcv")
     assert_list_length(candles, horizon, "kronos invoke candles")
+    print_json("kronos invoke forecast response", invoke_forecast)
 
     _, direct_forecast = request_json(
         "POST",
@@ -195,8 +208,10 @@ def verify_kronos(base_url: str, api_key: str | None, horizon: int, num_samples:
         payload=forecast_payload["input"],
     )
     assert_list_length(direct_forecast["candles"], horizon, "kronos direct candles")
+    print_json("kronos direct forecast response", direct_forecast)
 
     paths_payload = kronos_paths_payload(horizon, num_samples)
+    print_json("kronos paths request", paths_payload)
     _, invoke_paths = request_json(
         "POST",
         build_url(base_url, "/models/current/invoke"),
@@ -208,6 +223,7 @@ def verify_kronos(base_url: str, api_key: str | None, horizon: int, num_samples:
     assert_list_length(paths, num_samples, "kronos sampled paths")
     for index, path in enumerate(paths):
         assert_list_length(path, horizon, f"kronos sampled path {index}")
+    print_json("kronos invoke paths response", invoke_paths)
 
     _, direct_paths = request_json(
         "POST",
@@ -216,6 +232,7 @@ def verify_kronos(base_url: str, api_key: str | None, horizon: int, num_samples:
         payload=paths_payload["input"],
     )
     assert_list_length(direct_paths["paths"], num_samples, "kronos direct paths")
+    print_json("kronos direct paths response", direct_paths)
 
 
 def main() -> int:
