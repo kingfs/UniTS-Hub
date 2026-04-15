@@ -111,7 +111,7 @@ class KronosProvider(ModelProvider):
             if task == "generate_paths":
                 request = KronosGeneratePathsRequest.model_validate(payload)
                 symbol = request.symbol
-                candles = [c.model_dump(mode="json") for c in request.candles]
+                candles = [c.model_dump(mode="json", exclude_none=True) for c in request.candles]
                 horizon = request.horizon
                 temperature = request.temperature
                 top_p = request.top_p
@@ -119,7 +119,7 @@ class KronosProvider(ModelProvider):
             else:
                 request = KronosForecastRequest.model_validate(payload)
                 symbol = request.symbol
-                candles = [c.model_dump(mode="json") for c in request.candles]
+                candles = [c.model_dump(mode="json", exclude_none=True) for c in request.candles]
                 horizon = request.horizon
                 temperature = request.temperature
                 top_p = request.top_p
@@ -130,6 +130,7 @@ class KronosProvider(ModelProvider):
         x_timestamp = pd.to_datetime(pd.Series(timestamps))
         y_timestamp = self._future_timestamps(x_timestamp, horizon)
         frame = x_df[[c for c in ["open", "high", "low", "close", "volume", "amount"] if c in x_df.columns]]
+        frame = frame.dropna(axis=1, how="all")
 
         if task == "generate_paths":
             paths = []
