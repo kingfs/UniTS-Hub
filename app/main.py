@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
+from typing import TypeVar
 
 import dotenv
 import polars as pl
 import torch
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Security, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, ValidationError
 
 from app.config import Settings
-from app.mcp import handle_mcp_request
+from app.mcp import BearerAuthASGI, create_mcp_server
 from app.providers import ModelProvider, create_provider
 from app.schemas import (
     ChronosForecastRequest,
@@ -24,7 +28,6 @@ from app.schemas import (
     KronosForecastResponse,
     KronosGeneratePathsRequest,
     KronosGeneratePathsResponse,
-    MCPRpcRequest,
     ModelSchemaResponse,
     TimeSeriesInstance,
     TimesFMForecastRequest,
@@ -38,6 +41,7 @@ dotenv.load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("unitshub")
 security = HTTPBearer(auto_error=False)
+BodyModel = TypeVar("BodyModel", bound=BaseModel)
 
 
 def create_app(
@@ -45,31 +49,36 @@ def create_app(
     provider: ModelProvider | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
+    mcp_server = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if provider is not None:
-            app.state.provider = provider
-            yield
-            return
+        async with AsyncExitStack() as stack:
+            if mcp_server is not None:
+                await stack.enter_async_context(mcp_server.session_manager.run())
 
-        model_provider = create_provider(settings)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(
-            "Initializing UniTS-Hub v2 with model=[%s] on device=[%s]",
-            settings.model_type,
-            device,
-        )
-        try:
-            model_provider.load(settings.model_path(), device)
-            logger.info("Model [%s] loaded successfully.", settings.model_type)
-        except Exception as exc:
-            logger.exception("Failed to load model [%s]: %s", settings.model_type, exc)
-        app.state.provider = model_provider
-        yield
-        app.state.provider = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            if provider is not None:
+                app.state.provider = provider
+                yield
+                return
+
+            model_provider = create_provider(settings)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(
+                "Initializing UniTS-Hub v2 with model=[%s] on device=[%s]",
+                settings.model_type,
+                device,
+            )
+            try:
+                model_provider.load(settings.model_path(), device)
+                logger.info("Model [%s] loaded successfully.", settings.model_type)
+            except Exception as exc:
+                logger.exception("Failed to load model [%s]: %s", settings.model_type, exc)
+            app.state.provider = model_provider
+            yield
+            app.state.provider = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     app = FastAPI(
         title="UniTS-Hub",
@@ -101,6 +110,20 @@ def create_app(
             )
         return model_provider
 
+    async def parse_json_body(request: Request, model: type[BodyModel]) -> BodyModel:
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Request body must be valid JSON.") from exc
+
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=422, detail="Request body must be a JSON object.")
+
+        try:
+            return model.model_validate(payload)
+        except ValidationError as exc:
+            raise RequestValidationError(exc.errors(), body=payload) from exc
+
     def require_model(current_provider: ModelProvider, model_id: str) -> None:
         active_model = current_provider.descriptor().id
         if active_model != model_id:
@@ -131,6 +154,8 @@ def create_app(
         return app.openapi_schema
 
     app.openapi = custom_openapi
+    mcp_server = create_mcp_server(get_provider)
+    app.mount("/mcp", BearerAuthASGI(mcp_server.streamable_http_app(), settings.api_key))
 
     @app.get("/health")
     async def health() -> dict:
@@ -170,10 +195,11 @@ def create_app(
 
     @app.post("/models/current/invoke", response_model=InvokeResponse)
     async def invoke_model(
-        request: InvokeRequest,
+        raw_request: Request,
         _: str = Depends(get_api_key),
         current_provider: ModelProvider = Depends(get_provider),
     ) -> InvokeResponse:
+        request = await parse_json_body(raw_request, InvokeRequest)
         if not current_provider.supports_task(request.task):
             raise HTTPException(status_code=400, detail=f"Task [{request.task}] is not supported.")
         output = current_provider.invoke(request.task, request.input)
@@ -186,10 +212,11 @@ def create_app(
 
     @app.post("/timesfm/forecast", response_model=TimesFMForecastResponse)
     async def timesfm_forecast(
-        request: TimesFMForecastRequest,
+        raw_request: Request,
         _: str = Depends(get_api_key),
         current_provider: ModelProvider = Depends(get_provider),
     ) -> TimesFMForecastResponse:
+        request = await parse_json_body(raw_request, TimesFMForecastRequest)
         require_model(current_provider, "timesfm")
         output = current_provider.invoke("forecast_point", request.model_dump(mode="json"))
         forecast = output["forecasts"][0]
@@ -197,10 +224,11 @@ def create_app(
 
     @app.post("/chronos/forecast", response_model=ChronosForecastResponse)
     async def chronos_forecast(
-        request: ChronosForecastRequest,
+        raw_request: Request,
         _: str = Depends(get_api_key),
         current_provider: ModelProvider = Depends(get_provider),
     ) -> ChronosForecastResponse:
+        request = await parse_json_body(raw_request, ChronosForecastRequest)
         require_model(current_provider, "chronos")
         output = current_provider.invoke("forecast_quantile", request.model_dump(mode="json"))
         forecast = output["forecasts"][0]
@@ -208,10 +236,11 @@ def create_app(
 
     @app.post("/kronos/forecast-ohlcv", response_model=KronosForecastResponse)
     async def kronos_forecast_ohlcv(
-        request: KronosForecastRequest,
+        raw_request: Request,
         _: str = Depends(get_api_key),
         current_provider: ModelProvider = Depends(get_provider),
     ) -> KronosForecastResponse:
+        request = await parse_json_body(raw_request, KronosForecastRequest)
         require_model(current_provider, "kronos")
         output = current_provider.invoke("forecast_ohlcv", request.model_dump(mode="json"))
         forecast = output["forecasts"][0]
@@ -219,31 +248,23 @@ def create_app(
 
     @app.post("/kronos/generate-paths", response_model=KronosGeneratePathsResponse)
     async def kronos_generate_paths(
-        request: KronosGeneratePathsRequest,
+        raw_request: Request,
         _: str = Depends(get_api_key),
         current_provider: ModelProvider = Depends(get_provider),
     ) -> KronosGeneratePathsResponse:
+        request = await parse_json_body(raw_request, KronosGeneratePathsRequest)
         require_model(current_provider, "kronos")
         output = current_provider.invoke("generate_paths", request.model_dump(mode="json"))
         forecast = output["forecasts"][0]
         return KronosGeneratePathsResponse.model_validate(forecast)
 
-    @app.post("/mcp")
-    async def mcp(
-        request: MCPRpcRequest,
-        _: str = Depends(get_api_key),
-        current_provider: ModelProvider = Depends(get_provider),
-    ) -> JSONResponse:
-        response = handle_mcp_request(current_provider, request.model_dump(mode="json"))
-        status_code = 200 if response.error is None else 400
-        return JSONResponse(status_code=status_code, content=response.model_dump(mode="json"))
-
     @app.post("/predict", response_model=UnifiedResponse)
     async def predict(
-        request: UnifiedRequest,
+        raw_request: Request,
         _: str = Depends(get_api_key),
         current_provider: ModelProvider = Depends(get_provider),
     ) -> UnifiedResponse:
+        request = await parse_json_body(raw_request, UnifiedRequest)
         try:
             forecasts = current_provider.legacy_predict(
                 history=[instance.history for instance in request.instances],

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,20 +42,6 @@ class InvokeResponse(BaseModel):
     task: str
     output: Dict[str, Any]
     metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class MCPRpcRequest(BaseModel):
-    jsonrpc: Literal["2.0"] = "2.0"
-    id: Optional[Any] = None
-    method: str
-    params: Dict[str, Any] = Field(default_factory=dict)
-
-
-class MCPRpcResponse(BaseModel):
-    jsonrpc: Literal["2.0"] = "2.0"
-    id: Optional[Any] = None
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[Dict[str, Any]] = None
 
 
 class ForecastResult(BaseModel):

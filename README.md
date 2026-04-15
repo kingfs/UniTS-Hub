@@ -11,7 +11,7 @@ UniTS-Hub v2 keeps the original single-model deployment model, but replaces the 
 It exposes three integration surfaces:
 
 - REST API for Dify, LangChain, Flowise, and generic HTTP clients
-- MCP-compatible JSON-RPC endpoint for agent tool discovery and invocation
+- MCP endpoint powered by the official [`modelcontextprotocol/python-sdk`](https://github.com/modelcontextprotocol/python-sdk)
 - A repo-local Codex skill at [`.agents/skills/unitshub-agent/SKILL.md`](/Users/kingfs/go/src/github.com/kingfs/UniTS-Hub/.agents/skills/unitshub-agent/SKILL.md)
 
 ## Core design
@@ -94,21 +94,17 @@ Example for `Kronos`:
 
 ```json
 {
-  "task": "forecast_ohlcv",
+  "task": "generate_paths",
   "input": {
-    "series": [
+    "symbol": "AAPL",
+    "candles": [
       {
-        "symbol": "AAPL",
-        "candles": [
-          {
-            "timestamp": "2026-04-10T00:00:00Z",
-            "open": 190.1,
-            "high": 191.4,
-            "low": 188.7,
-            "close": 189.8,
-            "volume": 51230000
-          }
-        ]
+        "timestamp": "2026-04-10T00:00:00Z",
+        "open": 190.1,
+        "high": 191.4,
+        "low": 188.7,
+        "close": 189.8,
+        "volume": 51230000
       }
     ],
     "horizon": 5,
@@ -117,46 +113,88 @@ Example for `Kronos`:
 }
 ```
 
+`curl` 示例需要显式带 `Content-Type: application/json`。服务端现在也会兼容常见的 `curl -d` 省略该头的写法，但仍建议始终带上：
+
+```bash
+curl -X POST http://localhost:8000/models/current/invoke \
+  -H "Authorization: Bearer unitshub-secret" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": "forecast_ohlcv",
+    "input": {
+      "symbol": "AAPL",
+      "candles": [
+        {
+          "timestamp": "2026-04-10T00:00:00Z",
+          "open": 190.1,
+          "high": 191.4,
+          "low": 188.7,
+          "close": 189.8,
+          "volume": 51230000
+        }
+      ],
+      "horizon": 5
+    }
+  }'
+```
+
+## Docker
+
+Single image:
+
+```bash
+docker run --rm \
+  -p 8000:8000 \
+  -e MODEL_TYPE=timesfm \
+  -e API_KEY=unitshub-secret \
+  kingfs/unitshub:timesfm-latest
+```
+
+Compose profile switching:
+
+1. Create a local `.env` file and set `COMPOSE_PROFILES=kronos`
+2. Optionally set `API_KEY=unitshub-secret`
+3. Start the selected profile with `docker compose -f docker-compose.example.yml up -d`
+
+The example compose file keeps one service per model image, and `COMPOSE_PROFILES` decides which one starts.
+
 ## MCP endpoint
 
 `POST /mcp`
 
-The current implementation exposes MCP-style JSON-RPC methods for stateless HTTP clients:
-
-- `initialize`
-- `tools/list`
-- `tools/call`
-- `resources/list`
-- `resources/read`
-
-Available tools:
+The server uses the official MCP Python SDK in stateless Streamable HTTP mode. Available tools:
 
 - `get_current_model`
 - `get_model_schema`
-- `invoke_model`
+- `get_task_schema`
+- `invoke_task`
 
 Example:
 
 ```bash
-curl -X POST http://localhost:8000/mcp \
+curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
   -H "Authorization: Bearer your-secret-key" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
     "method": "tools/call",
     "params": {
-      "name": "invoke_model",
+      "name": "invoke_task",
       "arguments": {
         "task": "forecast_point",
         "input": {
-          "series": [{"target": [1, 2, 3, 4]}],
-          "horizon": 3
+          "history": [1, 2, 3, 4],
+          "horizon": 3,
+          "frequency": "auto"
         }
       }
     }
   }'
 ```
+
+The SDK handles MCP protocol details, so UniTS-Hub only defines tool behavior.
 
 ## Legacy compatibility
 
@@ -199,6 +237,22 @@ python3 scripts/download_models.py --model kronos
 uv sync
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+## Deployed API smoke test
+
+After you start one model container, you can validate the live service with:
+
+```bash
+python3 scripts/api_smoke_test.py --base-url http://localhost:8000 --api-key unitshub-secret
+```
+
+The script first calls `/models/current`, detects whether the service is running `timesfm`, `chronos`, or `kronos`, then sends model-specific sample payloads to `/models/current/invoke` and the direct model route:
+
+- `timesfm`: `/timesfm/forecast`
+- `chronos`: `/chronos/forecast`
+- `kronos`: `/kronos/forecast-ohlcv` and `/kronos/generate-paths`
+
+You can change the forecast length with `--horizon` and, for Kronos, sampled path count with `--num-samples`.
 
 ## Notes on runtime support
 

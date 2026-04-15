@@ -1,0 +1,33 @@
+services:
+  timesfm:
+    image: kingfs/unitshub:timesfm-latest
+    restart: always
+    profiles:
+      - timesfm
+    environment:
+      MODEL_TYPE: timesfm
+      API_KEY: ${API_KEY:-unitshub-secret}
+    ports:
+      - "8000:8000"
+
+  kronos:
+    image: kingfs/unitshub:kronos-latest
+    restart: always
+    profiles:
+      - kronos
+    environment:
+      MODEL_TYPE: kronos
+      API_KEY: ${API_KEY:-unitshub-secret}
+    ports:
+      - "8000:8000"
+
+  chronos:
+    image: kingfs/unitshub:chronos-latest
+    restart: always
+    profiles:
+      - chronos
+    environment:
+      MODEL_TYPE: chronos
+      API_KEY: ${API_KEY:-unitshub-secret}
+    ports:
+      - "8000:8000"

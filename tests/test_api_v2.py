@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from json import dumps
 
 from fastapi.testclient import TestClient
 
@@ -121,6 +122,10 @@ def create_test_client(model_id: str, tasks: list[str]):
 
 
 AUTH = {"Authorization": "Bearer test-key"}
+MCP_AUTH = {
+    "Authorization": "Bearer test-key",
+    "Accept": "application/json",
+}
 
 
 def test_current_model_descriptor():
@@ -150,6 +155,26 @@ def test_invoke_model_v2():
         body = response.json()
         assert body["task"] == "forecast_point"
         assert body["output"]["forecasts"][0]["mean"] == [0, 1, 2]
+
+
+def test_invoke_model_v2_accepts_json_without_content_type():
+    with create_test_client("timesfm", ["forecast_point"]) as client:
+        response = client.post(
+            "/models/current/invoke",
+            headers=AUTH,
+            content=dumps(
+                {
+                    "task": "forecast_point",
+                    "input": {
+                        "history": [1.0, 2.0, 3.0],
+                        "horizon": 2,
+                        "frequency": "auto",
+                    },
+                }
+            ),
+        )
+        assert response.status_code == 200
+        assert response.json()["output"]["forecasts"][0]["mean"] == [0, 1]
 
 
 def test_timesfm_model_route():
@@ -276,13 +301,13 @@ def test_legacy_predict_compatibility():
 def test_mcp_tools_call():
     with create_test_client("timesfm", ["forecast_point"]) as client:
         response = client.post(
-            "/mcp",
-            headers=AUTH,
+            "/mcp/",
+            headers=MCP_AUTH,
             json={
                 "jsonrpc": "2.0",
                 "id": 1,
-            "method": "tools/call",
-            "params": {
+                "method": "tools/call",
+                "params": {
                     "name": "invoke_task",
                     "arguments": {
                         "task": "forecast_point",
@@ -303,8 +328,8 @@ def test_mcp_tools_call():
 def test_mcp_get_task_schema():
     with create_test_client("chronos", ["forecast_quantile"]) as client:
         response = client.post(
-            "/mcp",
-            headers=AUTH,
+            "/mcp/",
+            headers=MCP_AUTH,
             json={
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -321,3 +346,24 @@ def test_mcp_get_task_schema():
         body = response.json()
         assert "input" in body["result"]["structuredContent"]
         assert "output" in body["result"]["structuredContent"]
+
+
+def test_mcp_initialize():
+    with create_test_client("timesfm", ["forecast_point"]) as client:
+        response = client.post(
+            "/mcp/",
+            headers=MCP_AUTH,
+            json={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test-client", "version": "1.0.0"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["result"]["serverInfo"]["name"] == "UniTS-Hub MCP"

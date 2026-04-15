@@ -18,6 +18,7 @@ dependencies = [
   "chronos-forecasting>=2.2.0",
   # ---- API serving ----
   "fastapi>=0.110",
+  "mcp>=1,<2",
   "uvicorn[standard]>=0.29",
   "pydantic>=2.7",
   "python-multipart>=0.0.9",
