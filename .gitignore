@@ -14,3 +14,4 @@ models/*
 .hf_cache/
 .DS_Store
 sample_data.csv
+.codex
