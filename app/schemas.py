@@ -124,7 +124,7 @@ class Candle(BaseModel):
 
 class KronosForecastRequest(BaseModel):
     symbol: Optional[str] = Field(default=None)
-    candles: List[Candle] = Field(..., min_length=2, description="Historical OHLC/OHLCV candles.")
+    candles: List[Candle] = Field(..., min_length=1, description="Historical OHLC/OHLCV candles.")
     horizon: int = Field(..., gt=0, description="Forecast horizon.")
     temperature: float = Field(default=1.0, gt=0.0)
     top_p: float = Field(default=0.9, gt=0.0, le=1.0)
@@ -137,7 +137,7 @@ class KronosForecastResponse(BaseModel):
 
 class KronosGeneratePathsRequest(BaseModel):
     symbol: Optional[str] = Field(default=None)
-    candles: List[Candle] = Field(..., min_length=2, description="Historical OHLC/OHLCV candles.")
+    candles: List[Candle] = Field(..., min_length=1, description="Historical OHLC/OHLCV candles.")
     horizon: int = Field(..., gt=0, description="Forecast horizon.")
     num_samples: int = Field(..., gt=0, le=64, description="Number of sampled paths.")
     temperature: float = Field(default=1.0, gt=0.0)
