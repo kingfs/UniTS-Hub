@@ -46,6 +46,9 @@ class TimesFMProvider(ModelProvider):
 
     def load(self, model_path: str, device: str) -> None:
         self.device = device
+        # TimesFM 3.0 uses the same Transformers prediction API as 2.5.
+        # Keep the import lazy so installations without the optional backend
+        # can still serve the other model families.
         from transformers import TimesFmModelForPrediction
 
         torch_device = torch.device(device)
@@ -56,6 +59,7 @@ class TimesFMProvider(ModelProvider):
             attn_implementation="sdpa",
         ).to(torch_device)
         self.model.eval()
+        self.model_version = "3.0" if "3.0" in model_path.lower() else "2.5"
         self.loaded = True
 
     def descriptor(self) -> ModelDescriptor:
@@ -70,14 +74,14 @@ class TimesFMProvider(ModelProvider):
         ]
         return ModelDescriptor(
             id="timesfm",
-            name="TimesFM 2.5",
-            version="2.5",
+            name=f"TimesFM {getattr(self, 'model_version', '3.0')}",
+            version=getattr(self, "model_version", "3.0"),
             description="Google Time Series Foundation Model optimized for univariate forecasting.",
             input_modes=["univariate"],
             output_modes=["point_forecast"],
             tasks=tasks,
             metadata={
-                "supports_quantiles": False,
+                "supports_quantiles": True,
                 "supports_covariates": False,
                 "supports_multivariate": False,
                 "runtime": self.runtime,
@@ -117,9 +121,15 @@ class TimesFMProvider(ModelProvider):
                 return_dict=True,
             )
             mean_predictions = outputs.mean_predictions[:, :horizon]
+            quantile_predictions = getattr(outputs, "quantile_predictions", None)
 
-        forecasts = [
-            forecast_result(row.tolist())
-            for row in mean_predictions.cpu().to(torch.float32).numpy()
-        ]
+        means = mean_predictions.cpu().to(torch.float32).numpy()
+        quantiles = quantile_predictions[:, :horizon].cpu().to(torch.float32).numpy() if quantile_predictions is not None else None
+        forecasts = []
+        for i, row in enumerate(means):
+            result = forecast_result(row.tolist())
+            if quantiles is not None:
+                levels = getattr(self.model.config, "quantiles", None) or [0.1 * j for j in range(1, 10)]
+                result["quantiles"] = {str(level): quantiles[i, :, j].tolist() for j, level in enumerate(levels) if j < quantiles.shape[-1]}
+            forecasts.append(result)
         return {"forecasts": forecasts}

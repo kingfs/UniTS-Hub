@@ -1,4 +1,3 @@
-from transformers import TimesFmModelForPrediction
 import torch
 from .interface import TimeSeriesModel
 from typing import List, Dict, Any
@@ -32,7 +31,7 @@ class TimesFMEngine(TimeSeriesModel):
 
     def load(self, model_path: str, device: str = "cpu") -> None:
         """
-        Load TimesFM 2.5 (PyTorch) model from HuggingFace.
+        Load TimesFM 3.0/2.5 (PyTorch) model from HuggingFace.
         model_path: HF repo id or local directory.
         """
         self.device = torch.device(device)
@@ -41,6 +40,7 @@ class TimesFMEngine(TimeSeriesModel):
         dtype = torch.float32 if self.device.type == "cpu" else torch.bfloat16
 
         # Load config + model
+        from transformers import TimesFmModelForPrediction
         self.model = TimesFmModelForPrediction.from_pretrained(
             model_path,
             torch_dtype=dtype,

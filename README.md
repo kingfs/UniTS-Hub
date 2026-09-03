@@ -4,7 +4,7 @@ Capability-first serving for time-series foundation models.
 
 UniTS-Hub v2 keeps the original single-model deployment model, but replaces the old predict-only interface with a model-capability API designed for AI agents. The service now targets three model families:
 
-- `TimesFM 2.5` for univariate point forecasting
+- `TimesFM 3.0` (and 2.5-compatible checkpoints) for univariate point forecasting
 - `Chronos-2` for quantile, multivariate, and covariate-oriented forecasting
 - `Kronos` for financial OHLCV forecasting and sampled path generation
 
