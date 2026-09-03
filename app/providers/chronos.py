@@ -12,8 +12,6 @@ from app.schemas import (
     ChronosForecastResponse,
     ModelDescriptor,
     TaskDefinition,
-    TimesFMForecastRequest,
-    TimesFMForecastResponse,
     schema_bundle,
 )
 
@@ -65,11 +63,10 @@ class ChronosProvider(ModelProvider):
     def task_schemas(self) -> Dict[str, Dict[str, Any]]:
         return {
             "forecast_quantile": schema_bundle(ChronosForecastRequest, ChronosForecastResponse),
-            "forecast_point": schema_bundle(TimesFMForecastRequest, TimesFMForecastResponse),
         }
 
     def default_legacy_task(self) -> str | None:
-        return "forecast_point"
+        return None
 
     def invoke(self, task: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if self.pipeline is None:
@@ -88,10 +85,7 @@ class ChronosProvider(ModelProvider):
                 contexts = [torch.tensor(request.series, dtype=torch.float32)]
                 quantiles = request.quantiles or self.quantiles or [0.1, 0.5, 0.9]
             else:
-                request = TimesFMForecastRequest.model_validate(payload)
-                horizon = request.horizon
-                contexts = [torch.tensor(request.history, dtype=torch.float32)]
-                quantiles = self.quantiles or [0.1, 0.5, 0.9]
+                raise ValueError(f"Chronos does not support task [{task}].")
 
         try:
             forecasts = self.pipeline.predict(

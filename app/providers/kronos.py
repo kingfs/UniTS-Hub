@@ -103,6 +103,8 @@ class KronosProvider(ModelProvider):
                 raise ValueError("Kronos request requires at least one series.")
             symbol = item.get("symbol")
             candles = item["candles"]
+            if len(candles) < 2:
+                raise ValueError("Kronos requires at least two candles.")
             horizon = int(payload["horizon"])
             temperature = float(payload.get("temperature") or 1.0)
             top_p = float(payload.get("top_p") or 0.9)
@@ -126,8 +128,12 @@ class KronosProvider(ModelProvider):
                 num_samples = 1
 
         timestamps = [row.get("timestamp") for row in candles]
+        if any(ts is None for ts in timestamps):
+            raise ValueError("Kronos requires timestamps for every candle.")
         x_df = pd.DataFrame(candles)
         x_timestamp = pd.to_datetime(pd.Series(timestamps))
+        if x_timestamp.isna().any() or not x_timestamp.is_monotonic_increasing:
+            raise ValueError("Kronos timestamps must be valid and increasing.")
         y_timestamp = self._future_timestamps(x_timestamp, horizon)
         frame = x_df[[c for c in ["open", "high", "low", "close", "volume", "amount"] if c in x_df.columns]]
         frame = frame.dropna(axis=1, how="all")
@@ -167,6 +173,8 @@ class KronosProvider(ModelProvider):
 
     def _future_timestamps(self, history: Any, horizon: int) -> Any:
         freq = history.diff().dropna().mode()
+        if history.empty or len(history) < 2:
+            raise ValueError("Kronos requires at least two timestamps to infer frequency.")
         step = freq.iloc[0] if not freq.empty else history.iloc[-1] - history.iloc[-2]
         future = [history.iloc[-1] + step * (idx + 1) for idx in range(horizon)]
         import pandas as pd
