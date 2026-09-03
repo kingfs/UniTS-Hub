@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from collections.abc import Callable
 from typing import Any
 
@@ -23,7 +24,9 @@ class BearerAuthASGI:
 
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         auth_header = headers.get(b"authorization", b"").decode("latin-1")
-        if auth_header != f"Bearer {self.api_key}":
+        expected = f"Bearer {self.api_key}"
+        # Constant-time comparison avoids making the API key a timing oracle.
+        if not hmac.compare_digest(auth_header, expected):
             response = JSONResponse(status_code=401, content={"detail": "Invalid or missing API key."})
             await response(scope, receive, send)
             return
