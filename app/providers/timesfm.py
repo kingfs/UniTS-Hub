@@ -110,6 +110,13 @@ class TimesFMProvider(ModelProvider):
             freq_raw = request.frequency.lower()
 
         freq_idx = FREQ_MAP.get(freq_raw, 0)
+        if freq_raw not in FREQ_MAP:
+            raise ValueError(f"Unsupported TimesFM frequency [{freq_raw}].")
+        if not histories or any(not series for series in histories):
+            raise ValueError("At least one non-empty time series is required.")
+        lengths = {len(series) for series in histories}
+        if len(lengths) > 1:
+            raise ValueError("Batch time series must have equal history lengths.")
 
         inputs = torch.tensor(histories, dtype=self.model.dtype, device=self.model.device)
         freq = torch.tensor([freq_idx] * len(histories), dtype=torch.long, device=self.model.device)
@@ -124,6 +131,8 @@ class TimesFMProvider(ModelProvider):
             quantile_predictions = getattr(outputs, "quantile_predictions", None)
 
         means = mean_predictions.cpu().to(torch.float32).numpy()
+        if any(len(row) < horizon for row in means):
+            raise RuntimeError("TimesFM returned fewer predictions than requested horizon.")
         quantiles = quantile_predictions[:, :horizon].cpu().to(torch.float32).numpy() if quantile_predictions is not None else None
         forecasts = []
         for i, row in enumerate(means):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 JsonSchema = Dict[str, Any]
@@ -48,6 +48,14 @@ class ForecastResult(BaseModel):
     mean: List[float]
     quantiles: Dict[str, List[float]] = Field(default_factory=dict)
 
+    @field_validator("quantiles")
+    @classmethod
+    def validate_quantile_lengths(cls, value, info):
+        mean = info.data.get("mean", [])
+        if any(len(series) != len(mean) for series in value.values()):
+            raise ValueError("Each quantile forecast must match mean length")
+        return value
+
 
 class TimeSeriesInstance(BaseModel):
     history: List[float] = Field(..., description="Historical values for a single univariate series.")
@@ -78,6 +86,7 @@ class TimesFMForecastRequest(BaseModel):
 
 class TimesFMForecastResponse(BaseModel):
     mean: List[float]
+    quantiles: Dict[str, List[float]] = Field(default_factory=dict)
 
 
 class ChronosForecastRequest(BaseModel):
@@ -87,6 +96,15 @@ class ChronosForecastRequest(BaseModel):
         default_factory=lambda: [0.1, 0.5, 0.9],
         description="Requested quantiles.",
     )
+
+    @field_validator("quantiles")
+    @classmethod
+    def validate_quantiles(cls, value):
+        if not value or any(not 0 < q < 1 for q in value):
+            raise ValueError("quantiles must be non-empty values strictly between 0 and 1")
+        if value != sorted(set(value)):
+            raise ValueError("quantiles must be strictly increasing")
+        return value
 
 
 class ChronosForecastResponse(BaseModel):
