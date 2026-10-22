@@ -7,7 +7,7 @@ requires-python = ">=3.11,<3.14"
 
 dependencies = [
   # ---- core numerical stack ----
-  "torch>=2.2",          # 与 Chronos-2 & TimesFM 3.0 完全兼容
+  "torch>=2.4",          # Timestral requires >=2.4; also compatible with Chronos-2 & TimesFM 3.0
   "numpy>=1.26",
   "scipy>=1.12",
   # ---- HF / transformers ecosystem ----
@@ -26,7 +26,13 @@ dependencies = [
   "python-multipart>=0.0.9",
   "polars>=1.0.0",
   "pandas>=2.2",
-  "chronos-forecasting>=2.2",
+]
+
+[project.optional-dependencies]
+# The Timestral runtime is distributed from its official repository, not PyPI.
+# Docker/CI install this extra only for MODEL_TYPE=timestral.
+timestral = [
+  "timestral @ git+https://github.com/mistralai/timestral.git@a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff",
 ]
 
 [build-system]
@@ -58,3 +64,21 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
 ]
+
+# ---- lint / format ----
+# CI pins the same ruff version through `uvx ruff@<version>`.
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "models"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "W", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI dependency injection intentionally uses calls in argument defaults.
+"app/main.py" = ["B008"]
+
+[tool.ruff.format]
+quote-style = "double"

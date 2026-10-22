@@ -32,6 +32,11 @@ from app.schemas import (
     TimeSeriesInstance,
     TimesFMForecastRequest,
     TimesFMForecastResponse,
+    TimestralForecastRequest,
+    TimestralForecastResponse,
+    TimestralForecastWithCovariatesRequest,
+    TimestralUnivariateForecastRequest,
+    TimestralUnivariateForecastResponse,
     UnifiedRequest,
     UnifiedResponse,
 )
@@ -84,7 +89,7 @@ def create_app(
         title="UniTS-Hub",
         version=settings.app_version,
         description=(
-            "Capability-first serving for TimesFM, Chronos-2, and Kronos. "
+            "Capability-first serving for TimesFM, Chronos-2, Kronos, and Timestral. "
             "Provides REST, MCP, and agent skill integration."
         ),
         lifespan=lifespan,
@@ -202,7 +207,11 @@ def create_app(
         request = await parse_json_body(raw_request, InvokeRequest)
         if not current_provider.supports_task(request.task):
             raise HTTPException(status_code=400, detail=f"Task [{request.task}] is not supported.")
-        output = current_provider.invoke(request.task, request.input)
+        try:
+            output = current_provider.invoke(request.task, request.input)
+        except ValueError as exc:
+            # Invalid task input is a client error, not an internal failure.
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return InvokeResponse(
             model=current_provider.descriptor().id,
             task=request.task,
@@ -233,6 +242,57 @@ def create_app(
         output = current_provider.invoke("forecast_quantile", request.model_dump(mode="json"))
         forecast = output["forecasts"][0]
         return ChronosForecastResponse(mean=forecast["mean"], quantiles=forecast.get("quantiles") or {})
+
+    @app.post("/timestral/forecast", response_model=TimestralUnivariateForecastResponse)
+    async def timestral_forecast(
+        raw_request: Request,
+        _: str = Depends(get_api_key),
+        current_provider: ModelProvider = Depends(get_provider),
+    ) -> TimestralUnivariateForecastResponse:
+        request = await parse_json_body(raw_request, TimestralUnivariateForecastRequest)
+        require_model(current_provider, "timestral")
+        try:
+            output = current_provider.invoke("forecast_quantile", request.model_dump(mode="json"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        forecast = output["forecasts"][0]
+        return TimestralUnivariateForecastResponse(
+            mean=forecast["mean"],
+            quantiles=forecast.get("quantiles") or {},
+        )
+
+    @app.post("/timestral/forecast-batch", response_model=TimestralForecastResponse)
+    async def timestral_forecast_batch(
+        raw_request: Request,
+        _: str = Depends(get_api_key),
+        current_provider: ModelProvider = Depends(get_provider),
+    ) -> TimestralForecastResponse:
+        request = await parse_json_body(raw_request, TimestralForecastRequest)
+        require_model(current_provider, "timestral")
+        try:
+            output = current_provider.invoke("forecast_quantile", request.model_dump(mode="json"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return TimestralForecastResponse.model_validate(output)
+
+    @app.post(
+        "/timestral/forecast-with-covariates",
+        response_model=TimestralForecastResponse,
+    )
+    async def timestral_forecast_with_covariates(
+        raw_request: Request,
+        _: str = Depends(get_api_key),
+        current_provider: ModelProvider = Depends(get_provider),
+    ) -> TimestralForecastResponse:
+        request = await parse_json_body(raw_request, TimestralForecastWithCovariatesRequest)
+        require_model(current_provider, "timestral")
+        try:
+            output = current_provider.invoke(
+                "forecast_with_covariates", request.model_dump(mode="json")
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return TimestralForecastResponse.model_validate(output)
 
     @app.post("/kronos/forecast-ohlcv", response_model=KronosForecastResponse)
     async def kronos_forecast_ohlcv(

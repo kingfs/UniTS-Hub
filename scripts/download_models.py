@@ -8,10 +8,17 @@ MODEL_REPOS = {
     "timesfm": "google/timesfm-2.5-200m-pytorch",
     "chronos": "amazon/chronos-2",
     "kronos": "NeoQuasar/Kronos-base",
+    "timestral": "mistralai/Timestral-209M",
 }
 
 TOKENIZER_REPOS = {
     "kronos": "NeoQuasar/Kronos-Tokenizer-base",
+}
+
+# Timestral only needs the exported checkpoint plus its license. Keeping the
+# download narrow shortens image builds and preserves the Modified MIT notice.
+ALLOW_PATTERNS = {
+    "timestral": ["config.json", "model.safetensors", "LICENSE*", "README.md"],
 }
 
 BASE_DIR = os.getenv("MODELS_DIR", "/app/models")
@@ -26,6 +33,7 @@ def _download(name: str, repo_id: str) -> None:
         local_dir=save_path,
         local_dir_use_symlinks=False,
         ignore_patterns=["*.msgpack", "*.h5", "*.ot"],
+        allow_patterns=ALLOW_PATTERNS.get(name),
     )
     print(f"Saved {name} to {save_path}")
 

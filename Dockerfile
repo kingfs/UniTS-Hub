@@ -6,6 +6,10 @@ ARG NO_PROXY
 ARG MODEL_TYPE=chronos
 ARG KRONOS_RUNTIME_REPO=https://github.com/shiyu-coder/Kronos.git
 ARG KRONOS_RUNTIME_REF=master
+ARG TIMESTRAL_REPO=https://github.com/mistralai/timestral.git
+# Standalone inference package; pinned so image builds are reproducible.
+# Keep in sync with the `timestral` optional dependency in pyproject.toml.
+ARG TIMESTRAL_REF=a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff
 
 ENV HTTP_PROXY=${HTTP_PROXY} \
     HTTPS_PROXY=${HTTPS_PROXY} \
@@ -18,7 +22,9 @@ ENV HTTP_PROXY=${HTTP_PROXY} \
     MODEL_TYPE=${MODEL_TYPE} \
     KRONOS_RUNTIME_REPO=${KRONOS_RUNTIME_REPO} \
     KRONOS_RUNTIME_REF=${KRONOS_RUNTIME_REF} \
-    KRONOS_RUNTIME_PATH=/opt/kronos-runtime
+    KRONOS_RUNTIME_PATH=/opt/kronos-runtime \
+    TIMESTRAL_REPO=${TIMESTRAL_REPO} \
+    TIMESTRAL_REF=${TIMESTRAL_REF}
 
 WORKDIR /app
 
@@ -38,6 +44,10 @@ COPY . .
 RUN uv pip install -r pyproject.toml
 RUN mkdir -p /opt/kronos-runtime
 RUN if [ "${MODEL_TYPE}" = "kronos" ]; then sh scripts/install_kronos_runtime.sh; fi
+# Timestral is installed from its official Git repository, pinned by TIMESTRAL_REF.
+RUN if [ "${MODEL_TYPE}" = "timestral" ]; then \
+    uv pip install "timestral @ git+${TIMESTRAL_REPO}@${TIMESTRAL_REF}"; \
+    fi
 RUN python scripts/download_models.py --model ${MODEL_TYPE}
 
 FROM python:3.12-slim-bookworm

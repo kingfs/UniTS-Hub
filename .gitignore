@@ -16,3 +16,5 @@ models/*
 sample_data.csv
 .codex
 .codebase-memory/
+.ruff_cache/
+.pytest_cache/

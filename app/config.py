@@ -12,9 +12,11 @@ class Settings:
     app_version: str = "2.0.0"
     kronos_tokenizer_path: str | None = None
     kronos_runtime_path: str | None = None
+    timestral_max_context: int | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
+        max_context = os.getenv("TIMESTRAL_MAX_CONTEXT")
         return cls(
             model_type=os.getenv("MODEL_TYPE", "chronos").lower(),
             models_dir=os.getenv("MODELS_DIR", "/app/models"),
@@ -22,6 +24,7 @@ class Settings:
             app_version=os.getenv("APP_VERSION", "2.0.0"),
             kronos_tokenizer_path=os.getenv("KRONOS_TOKENIZER_PATH"),
             kronos_runtime_path=os.getenv("KRONOS_RUNTIME_PATH"),
+            timestral_max_context=int(max_context) if max_context else None,
         )
 
     def model_path(self) -> str:

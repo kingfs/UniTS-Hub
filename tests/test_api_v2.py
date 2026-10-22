@@ -61,6 +61,27 @@ class FakeProvider(ModelProvider):
                     }
                 ]
             }
+        if self.model_id == "timestral" and task in {
+            "forecast_quantile",
+            "forecast_with_covariates",
+        }:
+            horizon = int(payload["horizon"])
+            mean = [float(index) for index in range(horizon)]
+            return {
+                "forecasts": [
+                    {
+                        "item_id": "test-series",
+                        "variate_names": None,
+                        "variate_count": 1,
+                        "mean": mean,
+                        "quantiles": {
+                            "0.1": [value - 1 for value in mean],
+                            "0.5": mean,
+                            "0.9": [value + 1 for value in mean],
+                        },
+                    }
+                ]
+            }
         if self.model_id == "kronos" and task == "forecast_ohlcv":
             horizon = int(payload["horizon"])
             candles = []
@@ -207,6 +228,124 @@ def test_chronos_model_route():
         body = response.json()
         assert body["mean"] == [0, 1]
         assert body["quantiles"]["0.9"] == [1, 2]
+
+
+def test_timestral_model_route_matches_chronos_contract():
+    with create_test_client(
+        "timestral", ["forecast_quantile", "forecast_with_covariates"]
+    ) as client:
+        response = client.post(
+            "/timestral/forecast",
+            headers=AUTH,
+            json={
+                "series": [1.0, 2.0, 3.0],
+                "horizon": 2,
+                "quantiles": [0.1, 0.5, 0.9],
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert set(body) == {"mean", "quantiles"}
+        assert body["mean"] == [0.0, 1.0]
+        assert body["quantiles"]["0.9"] == [1.0, 2.0]
+
+
+def test_timestral_batch_route():
+    with create_test_client(
+        "timestral", ["forecast_quantile", "forecast_with_covariates"]
+    ) as client:
+        response = client.post(
+            "/timestral/forecast-batch",
+            headers=AUTH,
+            json={
+                "series": [
+                    {
+                        "item_id": "sensor",
+                        "target": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+                        "variate_names": ["a", "b"],
+                    }
+                ],
+                "horizon": 2,
+                "quantiles": [0.1, 0.5, 0.9],
+            },
+        )
+        assert response.status_code == 200
+        forecast = response.json()["forecasts"][0]
+        assert forecast["variate_count"] == 1
+        assert forecast["mean"] == [0.0, 1.0]
+
+
+def test_timestral_covariate_route():
+    with create_test_client(
+        "timestral", ["forecast_quantile", "forecast_with_covariates"]
+    ) as client:
+        response = client.post(
+            "/timestral/forecast-with-covariates",
+            headers=AUTH,
+            json={
+                "series": [
+                    {
+                        "target": [1.0, 2.0, 3.0],
+                        "past_covariates": [[0.1, 0.2, 0.3]],
+                        "known_covariates": [[0.5, 0.5, 0.5, 0.5, 0.5]],
+                    }
+                ],
+                "horizon": 2,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["forecasts"][0]["mean"] == [0.0, 1.0]
+
+
+def test_timestral_invoke_v2():
+    with create_test_client(
+        "timestral", ["forecast_quantile", "forecast_with_covariates"]
+    ) as client:
+        response = client.post(
+            "/models/current/invoke",
+            headers=AUTH,
+            json={
+                "task": "forecast_quantile",
+                "input": {
+                    "series": [{"target": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]}],
+                    "horizon": 2,
+                },
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["model"] == "timestral"
+        assert body["output"]["forecasts"][0]["variate_count"] == 1
+
+
+def test_timestral_route_isolated_by_active_model():
+    with create_test_client("chronos", ["forecast_quantile"]) as client:
+        response = client.post(
+            "/timestral/forecast",
+            headers=AUTH,
+            json={"series": [1.0, 2.0, 3.0], "horizon": 2},
+        )
+        assert response.status_code == 404
+
+
+def test_timestral_rejects_invalid_covariate_lengths():
+    with create_test_client(
+        "timestral", ["forecast_quantile", "forecast_with_covariates"]
+    ) as client:
+        response = client.post(
+            "/timestral/forecast-with-covariates",
+            headers=AUTH,
+            json={
+                "series": [
+                    {
+                        "target": [1.0, 2.0, 3.0],
+                        "known_covariates": [[0.5, 0.5, 0.5]],
+                    }
+                ],
+                "horizon": 2,
+            },
+        )
+        assert response.status_code == 422
 
 
 def test_kronos_model_route():

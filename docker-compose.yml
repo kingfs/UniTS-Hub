@@ -31,3 +31,16 @@ services:
       API_KEY: ${API_KEY:-unitshub-secret}
     ports:
       - "8000:8000"
+
+  timestral:
+    image: kingfs/unitshub:timestral-latest
+    restart: always
+    profiles:
+      - timestral
+    environment:
+      MODEL_TYPE: timestral
+      API_KEY: ${API_KEY:-unitshub-secret}
+      # Optional: cap the context (most recent steps are kept). Defaults to 32768.
+      # TIMESTRAL_MAX_CONTEXT: 2048
+    ports:
+      - "8000:8000"

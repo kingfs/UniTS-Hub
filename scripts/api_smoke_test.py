@@ -89,6 +89,71 @@ def chronos_payload(horizon: int) -> dict[str, Any]:
     }
 
 
+TIMESTRAL_CONTEXT = [
+    128.4,
+    129.1,
+    130.8,
+    130.4,
+    131.6,
+    133.2,
+    132.8,
+    134.5,
+    133.9,
+    135.2,
+    136.1,
+    135.7,
+    137.0,
+    138.3,
+    137.6,
+    139.1,
+]
+
+TIMESTRAL_PRICE = [
+    210.0,
+    212.5,
+    211.2,
+    214.8,
+    217.4,
+    216.1,
+    219.3,
+    221.0,
+    220.4,
+    222.1,
+    223.6,
+    222.9,
+    224.5,
+    226.0,
+    225.2,
+    227.1,
+]
+
+
+def timestral_payload(horizon: int) -> dict[str, Any]:
+    return {
+        "task": "forecast_quantile",
+        "input": {
+            "series": [
+                {
+                    "item_id": "store-42",
+                    "target": [TIMESTRAL_CONTEXT, TIMESTRAL_PRICE],
+                    "variate_names": ["demand", "price"],
+                }
+            ],
+            "horizon": horizon,
+            "quantiles": [0.1, 0.5, 0.9],
+        },
+    }
+
+
+def timestral_covariate_payload(horizon: int) -> dict[str, Any]:
+    payload = timestral_payload(horizon)
+    payload["task"] = "forecast_with_covariates"
+    item = payload["input"]["series"][0]
+    item["past_covariates"] = [[round(0.1 * index, 3) for index in range(len(TIMESTRAL_CONTEXT))]]
+    item["known_covariates"] = [[0.5] * (len(TIMESTRAL_CONTEXT) + horizon)]
+    return payload
+
+
 def kronos_forecast_payload(horizon: int) -> dict[str, Any]:
     return {
         "task": "forecast_ohlcv",
@@ -187,6 +252,83 @@ def verify_chronos(base_url: str, api_key: str | None, horizon: int) -> None:
     print_json("chronos direct response", direct)
 
 
+def verify_timestral(base_url: str, api_key: str | None, horizon: int) -> None:
+    payload = timestral_payload(horizon)
+    print_json("timestral request", payload)
+    _, invoke = request_json("POST", build_url(base_url, "/models/current/invoke"), api_key=api_key, payload=payload)
+    forecast = invoke["output"]["forecasts"][0]
+    assert_true(invoke.get("task") == "forecast_quantile", "invoke task should be forecast_quantile")
+    assert_true(forecast.get("variate_count") == 2, "timestral should forecast two variates jointly")
+    assert_list_length(forecast["mean"], 2, "timestral invoke variates")
+    for variate in forecast["mean"]:
+        assert_list_length(variate, horizon, "timestral invoke mean variate")
+    for quantile in ("0.1", "0.5", "0.9"):
+        assert_list_length(forecast["quantiles"][quantile], 2, f"timestral quantile {quantile} variates")
+        for variate in forecast["quantiles"][quantile]:
+            assert_list_length(variate, horizon, f"timestral quantile {quantile} variate")
+    print_json("timestral invoke response", invoke)
+
+    # The simple route uses the exact Chronos-2 request/response contract.
+    simple_payload = {
+        "series": TIMESTRAL_CONTEXT,
+        "horizon": horizon,
+        "quantiles": [0.1, 0.5, 0.9],
+    }
+    print_json("timestral univariate request", simple_payload)
+    _, simple = request_json(
+        "POST",
+        build_url(base_url, "/timestral/forecast"),
+        api_key=api_key,
+        payload=simple_payload,
+    )
+    assert_list_length(simple["mean"], horizon, "timestral univariate mean")
+    assert_true("forecasts" not in simple, "timestral univariate response must match the Chronos contract")
+    for quantile in ("0.1", "0.5", "0.9"):
+        assert_list_length(simple["quantiles"][quantile], horizon, f"timestral univariate {quantile}")
+    print_json("timestral univariate response", simple)
+
+    _, direct = request_json(
+        "POST",
+        build_url(base_url, "/timestral/forecast-batch"),
+        api_key=api_key,
+        payload=payload["input"],
+    )
+    assert_list_length(direct["forecasts"][0]["mean"], 2, "timestral direct variates")
+    print_json("timestral direct response", direct)
+
+    covariate_payload = timestral_covariate_payload(horizon)
+    print_json("timestral covariate request", covariate_payload)
+    _, covariate_invoke = request_json(
+        "POST",
+        build_url(base_url, "/models/current/invoke"),
+        api_key=api_key,
+        payload=covariate_payload,
+    )
+    assert_true(
+        covariate_invoke.get("task") == "forecast_with_covariates",
+        "invoke task should be forecast_with_covariates",
+    )
+    assert_list_length(
+        covariate_invoke["output"]["forecasts"][0]["mean"],
+        2,
+        "timestral covariate variates",
+    )
+    print_json("timestral covariate invoke response", covariate_invoke)
+
+    _, covariate_direct = request_json(
+        "POST",
+        build_url(base_url, "/timestral/forecast-with-covariates"),
+        api_key=api_key,
+        payload=covariate_payload["input"],
+    )
+    assert_list_length(
+        covariate_direct["forecasts"][0]["mean"],
+        2,
+        "timestral covariate direct variates",
+    )
+    print_json("timestral covariate direct response", covariate_direct)
+
+
 def verify_kronos(base_url: str, api_key: str | None, horizon: int, num_samples: int) -> None:
     forecast_payload = kronos_forecast_payload(horizon)
     print_json("kronos forecast request", forecast_payload)
@@ -259,6 +401,8 @@ def main() -> int:
             verify_chronos(args.base_url, args.api_key, args.horizon)
         elif model_id == "kronos":
             verify_kronos(args.base_url, args.api_key, args.horizon, args.num_samples)
+        elif model_id == "timestral":
+            verify_timestral(args.base_url, args.api_key, args.horizon)
         else:
             raise RuntimeError(f"Unsupported model id returned by service: {model_id}")
     except Exception as exc:

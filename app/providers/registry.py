@@ -5,6 +5,7 @@ from app.providers.base import ModelProvider
 from app.providers.chronos import ChronosProvider
 from app.providers.kronos import KronosProvider
 from app.providers.timesfm import TimesFMProvider
+from app.providers.timestral import TimestralProvider
 
 
 def create_provider(settings: Settings) -> ModelProvider:
@@ -18,4 +19,6 @@ def create_provider(settings: Settings) -> ModelProvider:
             tokenizer_path=settings.kronos_tokenizer_path,
             runtime_path=settings.kronos_runtime_path,
         )
+    if model_type in {"timestral", "mistral-timestral"}:
+        return TimestralProvider(max_context=settings.timestral_max_context)
     raise ValueError(f"Unsupported MODEL_TYPE: {settings.model_type}")

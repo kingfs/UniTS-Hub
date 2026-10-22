@@ -12,11 +12,12 @@ The goal is narrow and operational:
 - Support both REST and MCP for AI workflow tools and AI agents
 - Prefer correctness and clarity over abstract generality
 
-UniTS-Hub v2 is not intended to be a generic model platform. It is a small serving runtime for three specific model families:
+UniTS-Hub v2 is not intended to be a generic model platform. It is a small serving runtime for four specific model families:
 
-- `TimesFM 2.5`
+- `TimesFM 2.5` / `3.0`
 - `Chronos-2`
 - `Kronos`
+- `Timestral` (Mistral)
 
 ## 2. Product Constraints
 
@@ -29,6 +30,7 @@ Examples:
 - `kingfs/unitshub:timesfm-latest`
 - `kingfs/unitshub:chronos2-latest`
 - `kingfs/unitshub:kronos-latest`
+- `kingfs/unitshub:timestral-latest`
 
 The service may expose a common discovery layer, but runtime behavior is always based on the one active model.
 
@@ -54,7 +56,7 @@ Runtime should not need to download anything from the network.
 
 - No multi-model hot-switching in one running container
 - No plugin marketplace or arbitrary third-party model loading
-- No broad task taxonomy beyond what the three target models actually need
+- No broad task taxonomy beyond what the four target models actually need
 - No capability claims based only on papers or READMEs
 
 ## 4. Model Capability Matrix
@@ -69,6 +71,8 @@ This table is the contract baseline. Only rows marked `supported` should surface
 | Chronos-2 | history + covariates | `forecast_with_covariates` | quantile forecast | optional, only after dataframe/covariate path is implemented and tested |
 | Kronos | OHLC or OHLCV candle history | `forecast_ohlcv` | future candles | required |
 | Kronos | OHLC or OHLCV candle history + sample count | `generate_paths` | sampled future paths | required |
+| Timestral | univariate or multivariate numeric history + horizon | `forecast_quantile` | quantile forecast on the checkpoint's fixed knot grid | required |
+| Timestral | history + past-only and/or known-future covariates | `forecast_with_covariates` | quantile forecast | required when the checkpoint was trained with covariates |
 
 ### 4.1 TimesFM
 
@@ -99,6 +103,29 @@ Target contract:
 - output is future candles, optionally with multiple sampled paths
 - timestamps should be accepted and preserved when available
 
+### 4.4 Timestral
+
+Target contract:
+
+- required task: `forecast_quantile`
+- required task: `forecast_with_covariates` when the checkpoint has `covariate_enabled`
+- input target is a `(variates, time)` matrix; a flat array is a one-variate series
+- variates of one series are forecast jointly, not independently
+- covariates are conditioning rows: past-only (`time`) and known-future (`time + horizon`), numeric or categorical
+- output is quantile-only on the checkpoint's fixed, non-crossing knot grid (21 levels for the 209M checkpoint)
+- `mean` is the 0.5 quantile, because Timestral has no mean head
+- `null` marks missing observations; the runtime forward-fills internally
+- horizon is decoded block by block beyond one decode block (`block_size * patch_size`, 1024 steps for 209M)
+- one request may batch series with different context lengths (left-padded with missing) but not different variate layouts
+
+Capability notes:
+
+- `forecast_quantile` must reject covariate fields so the two tasks stay honest and discoverable.
+- `forecast_with_covariates` must reject requests without any covariate field.
+- Quantile requests must be a subset of the checkpoint's knots; do not interpolate unverified levels.
+- Known-future support depends on the checkpoint's layer schedule and must be read from the runtime, not assumed.
+- The runtime has no sampling path, so `generate_paths` must not be advertised.
+
 ## 5. Architecture
 
 ```text
@@ -109,11 +136,11 @@ Target contract:
                                |
                      current active provider
                                |
-        +----------------------+----------------------+
-        |                      |                      |
-   TimesFMProvider      Chronos2Provider       KronosProvider
-        |                      |                      |
-   model runtime          model runtime          model runtime
+        +----------------------+----------------------+----------------------+
+        |                      |                      |                      |
+   TimesFMProvider      Chronos2Provider       KronosProvider      TimestralProvider
+        |                      |                      |                      |
+   model runtime          model runtime          model runtime          model runtime
 ```
 
 ### 5.1 Components
@@ -259,6 +286,62 @@ Optional future endpoint after implementation:
 
 - `POST /chronos/forecast-with-covariates`
 
+#### Timestral
+
+- `POST /timestral/forecast` — single univariate series, same contract as `/chronos/forecast`
+- `POST /timestral/forecast-batch` — one or more series, optionally multivariate
+- `POST /timestral/forecast-with-covariates` — target plus past/known/categorical covariates
+
+The simple route uses the shared `QuantileForecastRequest` / `QuantileForecastResponse`
+schema, so Chronos-2 and Timestral are interchangeable for the common case:
+
+```json
+{
+  "series": [120, 125, 118, 131, 135],
+  "horizon": 3,
+  "quantiles": [0.1, 0.5, 0.9]
+}
+```
+
+The batch and covariate routes use the rich request:
+
+```json
+{
+  "series": [
+    {
+      "item_id": "store-42",
+      "target": [
+        [120, 125, 118, 131, 135],
+        [9.9, 9.8, 10.1, 10.0, 10.3]
+      ],
+      "variate_names": ["demand", "price"],
+      "past_covariates": [[0, 1, 0, 0, 1]],
+      "known_covariates": [[0, 1, 1, 0, 0, 1, 0, 1]]
+    }
+  ],
+  "horizon": 3,
+  "quantiles": [0.1, 0.5, 0.9]
+}
+```
+
+Response:
+
+```json
+{
+  "forecasts": [
+    {
+      "item_id": "store-42",
+      "variate_names": ["demand", "price"],
+      "variate_count": 2,
+      "mean": [[133.1, 134.4, 135.2], [10.35, 10.4, 10.45]],
+      "quantiles": {"0.1": [[...], [...]], "0.5": [[...], [...]], "0.9": [[...], [...]]}
+    }
+  ]
+}
+```
+
+The same payload shape is used by `/models/current/invoke` with task `forecast_quantile` or `forecast_with_covariates`.
+
 #### Kronos
 
 - `POST /kronos/forecast-ohlcv`
@@ -334,6 +417,10 @@ Required schema families:
 - `KronosForecastResponse`
 - `KronosGeneratePathsRequest`
 - `KronosGeneratePathsResponse`
+- `TimestralSeries`
+- `TimestralForecastRequest`
+- `TimestralForecastWithCovariatesRequest`
+- `TimestralForecastResponse`
 
 These models should drive:
 
@@ -355,6 +442,7 @@ Tags:
 - `kingfs/unitshub:timesfm-latest`
 - `kingfs/unitshub:chronos2-latest`
 - `kingfs/unitshub:kronos-latest`
+- `kingfs/unitshub:timestral-latest`
 - optional unified semantic tags such as `:timesfm-v2.0.0`
 
 Reason:
@@ -397,6 +485,13 @@ Build behavior:
 - include tokenizer assets
 - ensure no runtime network dependency remains
 
+#### Timestral image
+
+- install the standalone `timestral` package from its pinned Git commit
+- include `config.json`, `model.safetensors`, and the weight license
+- no `transformers` runtime or tokenizer assets required
+- load from the local checkpoint directory with `local_files_only=True`
+
 ## 10. GitHub Actions Release Pipeline
 
 The workflow should become a model matrix build.
@@ -411,7 +506,7 @@ The workflow should become a model matrix build.
 
 Matrix dimensions:
 
-- `model_type`: `timesfm`, `chronos2`, `kronos`
+- `model_type`: `timesfm`, `chronos2`, `kronos`, `timestral`
 - `platform`: `linux/amd64`, `linux/arm64`
 
 Each matrix job:
@@ -457,7 +552,7 @@ It should not try to replicate all product documentation.
 
 - refactor Dockerfile for model-specific build
 - refactor GitHub Actions into model matrix builds
-- ensure offline startup for all three images
+- ensure offline startup for all model images
 
 ### Phase 4: MCP tightening
 
