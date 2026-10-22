@@ -3,7 +3,6 @@ import os
 
 from huggingface_hub import snapshot_download
 
-
 MODEL_REPOS = {
     "timesfm": "google/timesfm-2.5-200m-pytorch",
     "chronos": "amazon/chronos-2",

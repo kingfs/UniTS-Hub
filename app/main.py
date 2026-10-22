@@ -287,9 +287,7 @@ def create_app(
         request = await parse_json_body(raw_request, TimestralForecastWithCovariatesRequest)
         require_model(current_provider, "timestral")
         try:
-            output = current_provider.invoke(
-                "forecast_with_covariates", request.model_dump(mode="json")
-            )
+            output = current_provider.invoke("forecast_with_covariates", request.model_dump(mode="json"))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return TimestralForecastResponse.model_validate(output)

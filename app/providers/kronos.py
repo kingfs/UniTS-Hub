@@ -63,7 +63,7 @@ class KronosProvider(ModelProvider):
                 description="Generate multiple sampled future OHLC/OHLCV paths for one asset series.",
                 input_schema=KronosGeneratePathsRequest.model_json_schema(),
                 output_schema=KronosGeneratePathsResponse.model_json_schema(),
-            )
+            ),
         ]
         return ModelDescriptor(
             id="kronos",

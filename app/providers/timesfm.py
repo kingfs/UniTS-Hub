@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import torch
 
@@ -13,7 +13,6 @@ from app.schemas import (
     TimesFMForecastResponse,
     schema_bundle,
 )
-
 
 FREQ_MAP = {
     "auto": 0,
@@ -133,12 +132,18 @@ class TimesFMProvider(ModelProvider):
         means = mean_predictions.cpu().to(torch.float32).numpy()
         if any(len(row) < horizon for row in means):
             raise RuntimeError("TimesFM returned fewer predictions than requested horizon.")
-        quantiles = quantile_predictions[:, :horizon].cpu().to(torch.float32).numpy() if quantile_predictions is not None else None
+        quantiles = (
+            quantile_predictions[:, :horizon].cpu().to(torch.float32).numpy()
+            if quantile_predictions is not None
+            else None
+        )
         forecasts = []
         for i, row in enumerate(means):
             result = forecast_result(row.tolist())
             if quantiles is not None:
                 levels = getattr(self.model.config, "quantiles", None) or [0.1 * j for j in range(1, 10)]
-                result["quantiles"] = {str(level): quantiles[i, :, j].tolist() for j, level in enumerate(levels) if j < quantiles.shape[-1]}
+                result["quantiles"] = {
+                    str(level): quantiles[i, :, j].tolist() for j, level in enumerate(levels) if j < quantiles.shape[-1]
+                }
             forecasts.append(result)
         return {"forecasts": forecasts}

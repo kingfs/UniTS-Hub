@@ -115,8 +115,8 @@ def test_quantiles_are_non_crossing(provider: TimestralProvider) -> None:
         },
     )
     quantiles = output["forecasts"][0]["quantiles"]
-    for lower, upper in zip(["0.01", "0.1", "0.5", "0.9"], ["0.1", "0.5", "0.9", "0.99"]):
-        assert all(a <= b for a, b in zip(quantiles[lower], quantiles[upper]))
+    for lower, upper in zip(["0.01", "0.1", "0.5", "0.9"], ["0.1", "0.5", "0.9", "0.99"], strict=True):
+        assert all(a <= b for a, b in zip(quantiles[lower], quantiles[upper], strict=True))
 
 
 def test_multivariate_forecast_returns_nested_values(provider: TimestralProvider) -> None:

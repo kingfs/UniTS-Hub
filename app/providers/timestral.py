@@ -56,9 +56,7 @@ def _payload_has_covariates(payload: Dict[str, Any]) -> bool:
     series = payload.get("series")
     if isinstance(series, (list, tuple)):
         return any(
-            isinstance(item, dict)
-            and any(name in item for name in TIMESTRAL_COVARIATE_FIELDS)
-            for item in series
+            isinstance(item, dict) and any(name in item for name in TIMESTRAL_COVARIATE_FIELDS) for item in series
         )
     return False
 
@@ -124,9 +122,7 @@ class TimestralProvider(ModelProvider):
             TaskDefinition(
                 name="forecast_quantile",
                 title="Quantile Forecast",
-                description=(
-                    "Probabilistic forecast for one or more series with jointly forecast variates."
-                ),
+                description=("Probabilistic forecast for one or more series with jointly forecast variates."),
                 input_schema=TimestralForecastRequest.model_json_schema(),
                 output_schema=TimestralForecastResponse.model_json_schema(),
             )
@@ -136,9 +132,7 @@ class TimestralProvider(ModelProvider):
                 TaskDefinition(
                     name="forecast_with_covariates",
                     title="Quantile Forecast with Covariates",
-                    description=(
-                        "Probabilistic forecast conditioned on past-only and/or known-future covariates."
-                    ),
+                    description=("Probabilistic forecast conditioned on past-only and/or known-future covariates."),
                     input_schema=TimestralForecastWithCovariatesRequest.model_json_schema(),
                     output_schema=TimestralForecastResponse.model_json_schema(),
                 )
@@ -203,14 +197,10 @@ class TimestralProvider(ModelProvider):
         if task not in self.task_schemas():
             raise ValueError(f"Timestral does not support task [{task}].")
         if task == "forecast_quantile" and _payload_has_covariates(payload):
-            raise ValueError(
-                "forecast_quantile does not accept covariates; use forecast_with_covariates instead."
-            )
+            raise ValueError("forecast_quantile does not accept covariates; use forecast_with_covariates instead.")
 
         request_model = (
-            TimestralForecastWithCovariatesRequest
-            if task == "forecast_with_covariates"
-            else TimestralForecastRequest
+            TimestralForecastWithCovariatesRequest if task == "forecast_with_covariates" else TimestralForecastRequest
         )
         request = request_model.model_validate(payload)
 
@@ -235,10 +225,7 @@ class TimestralProvider(ModelProvider):
                 None,
             )
             if match is None:
-                raise ValueError(
-                    f"Quantile [{quantile}] is not available. "
-                    f"Choose from {self.quantile_levels}."
-                )
+                raise ValueError(f"Quantile [{quantile}] is not available. Choose from {self.quantile_levels}.")
             if self.quantile_levels[match] not in levels:
                 levels.append(self.quantile_levels[match])
                 indices.append(match)
@@ -268,6 +255,7 @@ class TimestralProvider(ModelProvider):
             for index, result in zip(
                 indices,
                 self._forecast_group(request, group_items, group_matrices, levels, level_indices),
+                strict=True,
             ):
                 results[index] = result
 
@@ -292,15 +280,9 @@ class TimestralProvider(ModelProvider):
             context[index, :, max_context - matrix.shape[1] :] = matrix
 
         past_covariates = _stack_covariates(items, "past_covariates", max_context)
-        known_covariates = _stack_covariates(
-            items, "known_covariates", max_context + request.horizon
-        )
-        categorical_past = _stack_covariates(
-            items, "categorical_past_covariates", max_context
-        )
-        categorical_known = _stack_covariates(
-            items, "categorical_known_covariates", max_context + request.horizon
-        )
+        known_covariates = _stack_covariates(items, "known_covariates", max_context + request.horizon)
+        categorical_past = _stack_covariates(items, "categorical_past_covariates", max_context)
+        categorical_known = _stack_covariates(items, "categorical_known_covariates", max_context + request.horizon)
 
         forecast = self.forecaster.forecast(
             context,
@@ -322,15 +304,13 @@ class TimestralProvider(ModelProvider):
                 mean: Any = median[0].tolist()
                 quantile_map: Dict[str, Any] = {
                     _level_key(level): values[0, :, index].tolist()
-                    for level, index in zip(levels, level_indices)
+                    for level, index in zip(levels, level_indices, strict=True)
                 }
             else:
                 mean = [median[variate].tolist() for variate in range(variates)]
                 quantile_map = {
-                    _level_key(level): [
-                        values[variate, :, index].tolist() for variate in range(variates)
-                    ]
-                    for level, index in zip(levels, level_indices)
+                    _level_key(level): [values[variate, :, index].tolist() for variate in range(variates)]
+                    for level, index in zip(levels, level_indices, strict=True)
                 }
             output.append(
                 {

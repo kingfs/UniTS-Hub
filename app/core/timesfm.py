@@ -1,6 +1,8 @@
+from typing import Any, Dict, List
+
 import torch
+
 from .interface import TimeSeriesModel
-from typing import List, Dict, Any
 
 FREQ_MAP = {
     "auto": 0,
@@ -21,8 +23,9 @@ FREQ_MAP = {
     "y": 2,
     "0": 0,
     "1": 1,
-    "2": 2
+    "2": 2,
 }
+
 
 class TimesFMEngine(TimeSeriesModel):
     def __init__(self):
@@ -35,26 +38,20 @@ class TimesFMEngine(TimeSeriesModel):
         model_path: HF repo id or local directory.
         """
         self.device = torch.device(device)
-        
+
         # Use float32 on CPU as bfloat16 has limited support for some operations
         dtype = torch.float32 if self.device.type == "cpu" else torch.bfloat16
 
         # Load config + model
         from transformers import TimesFmModelForPrediction
+
         self.model = TimesFmModelForPrediction.from_pretrained(
-            model_path,
-            torch_dtype=dtype,
-            attn_implementation="sdpa"
+            model_path, torch_dtype=dtype, attn_implementation="sdpa"
         ).to(self.device)
 
         self.model.eval()
 
-    def predict(
-        self,
-        history: List[List[float]],
-        horizon: int,
-        **kwargs
-    ) -> List[Dict[str, Any]]:
+    def predict(self, history: List[List[float]], horizon: int, **kwargs) -> List[Dict[str, Any]]:
         """
         history: List of time series, each is List[float]
         horizon: forecast horizon
@@ -65,23 +62,19 @@ class TimesFMEngine(TimeSeriesModel):
         # Convert to tensor: shape [batch, context_length]
         # Use the same dtype as the model to avoid "mat1 and mat2 must have the same dtype" error
         inputs = torch.tensor(history, dtype=self.model.dtype, device=self.device)
-        
+
         # Get frequency index from kwargs (support both 'frequency' and 'freq')
         freq_raw = kwargs.get("frequency") or kwargs.get("freq") or "0"
         if isinstance(freq_raw, str):
             freq_idx = FREQ_MAP.get(freq_raw.lower(), 0)
         else:
             freq_idx = int(freq_raw)
-            
+
         freq = torch.tensor([freq_idx] * len(history), dtype=torch.long, device=self.device)
 
         # HF TimesFM expects forward call
         with torch.no_grad():
-            outputs = self.model(
-                past_values=inputs,
-                freq=freq,
-                return_dict=True
-            )
+            outputs = self.model(past_values=inputs, freq=freq, return_dict=True)
             # mean_predictions shape: [batch, horizon_length]
             mean_predictions = outputs.mean_predictions
 
@@ -94,7 +87,7 @@ class TimesFMEngine(TimeSeriesModel):
         return [
             {
                 "mean": row.tolist(),
-                "quantiles": {}  # TimesFM 2.5 HF 版暂不提供 quantiles
+                "quantiles": {},  # TimesFM 2.5 HF 版暂不提供 quantiles
             }
             for row in mean_predictions
         ]

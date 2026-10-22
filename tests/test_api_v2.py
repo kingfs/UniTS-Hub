@@ -8,7 +8,14 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 from app.providers.base import ModelProvider
-from app.schemas import ModelDescriptor, TaskDefinition
+from app.schemas import (
+    ChronosForecastRequest,
+    ChronosForecastResponse,
+    ModelDescriptor,
+    TaskDefinition,
+    TimestralUnivariateForecastRequest,
+    TimestralUnivariateForecastResponse,
+)
 
 
 class FakeProvider(ModelProvider):
@@ -231,9 +238,7 @@ def test_chronos_model_route():
 
 
 def test_timestral_model_route_matches_chronos_contract():
-    with create_test_client(
-        "timestral", ["forecast_quantile", "forecast_with_covariates"]
-    ) as client:
+    with create_test_client("timestral", ["forecast_quantile", "forecast_with_covariates"]) as client:
         response = client.post(
             "/timestral/forecast",
             headers=AUTH,
@@ -251,9 +256,7 @@ def test_timestral_model_route_matches_chronos_contract():
 
 
 def test_timestral_batch_route():
-    with create_test_client(
-        "timestral", ["forecast_quantile", "forecast_with_covariates"]
-    ) as client:
+    with create_test_client("timestral", ["forecast_quantile", "forecast_with_covariates"]) as client:
         response = client.post(
             "/timestral/forecast-batch",
             headers=AUTH,
@@ -276,9 +279,7 @@ def test_timestral_batch_route():
 
 
 def test_timestral_covariate_route():
-    with create_test_client(
-        "timestral", ["forecast_quantile", "forecast_with_covariates"]
-    ) as client:
+    with create_test_client("timestral", ["forecast_quantile", "forecast_with_covariates"]) as client:
         response = client.post(
             "/timestral/forecast-with-covariates",
             headers=AUTH,
@@ -298,9 +299,7 @@ def test_timestral_covariate_route():
 
 
 def test_timestral_invoke_v2():
-    with create_test_client(
-        "timestral", ["forecast_quantile", "forecast_with_covariates"]
-    ) as client:
+    with create_test_client("timestral", ["forecast_quantile", "forecast_with_covariates"]) as client:
         response = client.post(
             "/models/current/invoke",
             headers=AUTH,
@@ -329,9 +328,7 @@ def test_timestral_route_isolated_by_active_model():
 
 
 def test_timestral_rejects_invalid_covariate_lengths():
-    with create_test_client(
-        "timestral", ["forecast_quantile", "forecast_with_covariates"]
-    ) as client:
+    with create_test_client("timestral", ["forecast_quantile", "forecast_with_covariates"]) as client:
         response = client.post(
             "/timestral/forecast-with-covariates",
             headers=AUTH,
@@ -506,3 +503,8 @@ def test_mcp_initialize():
         assert response.status_code == 200
         body = response.json()
         assert body["result"]["serverInfo"]["name"] == "UniTS-Hub MCP"
+
+
+def test_quantile_models_share_univariate_contract():
+    assert ChronosForecastRequest.model_fields.keys() == TimestralUnivariateForecastRequest.model_fields.keys()
+    assert ChronosForecastResponse.model_fields.keys() == TimestralUnivariateForecastResponse.model_fields.keys()

@@ -316,6 +316,14 @@ uv sync --extra timestral
 uv run --extra timestral uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+Quality gates (the same commands run in CI):
+
+```bash
+uvx ruff@0.17.1 check app tests scripts
+uvx ruff@0.17.1 format --check app tests scripts
+uv run --extra timestral pytest
+```
+
 ## Deployed API smoke test
 
 After you start one model container, you can validate the live service with:

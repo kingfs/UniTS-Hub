@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 JsonSchema = Dict[str, Any]
 
 
@@ -378,16 +377,14 @@ class TimestralForecastWithCovariatesRequest(TimestralForecastRequest):
                 rows = getattr(item, name)
                 if rows and len(rows[0]) != history:
                     raise ValueError(
-                        f"series[{index}].{name} must cover exactly the {history} context steps, "
-                        f"got {len(rows[0])}"
+                        f"series[{index}].{name} must cover exactly the {history} context steps, got {len(rows[0])}"
                     )
             for name in ("known_covariates", "categorical_known_covariates"):
                 rows = getattr(item, name)
                 expected = history + self.horizon
                 if rows and len(rows[0]) != expected:
                     raise ValueError(
-                        f"series[{index}].{name} must cover context + horizon ({expected} steps), "
-                        f"got {len(rows[0])}"
+                        f"series[{index}].{name} must cover context + horizon ({expected} steps), got {len(rows[0])}"
                     )
         if not self.has_covariates():
             raise ValueError(
@@ -397,11 +394,7 @@ class TimestralForecastWithCovariatesRequest(TimestralForecastRequest):
         return self
 
     def has_covariates(self) -> bool:
-        return any(
-            bool(getattr(item, name))
-            for item in self.series
-            for name in TIMESTRAL_COVARIATE_FIELDS
-        )
+        return any(bool(getattr(item, name)) for item in self.series for name in TIMESTRAL_COVARIATE_FIELDS)
 
     def has_known_covariates(self) -> bool:
         return any(

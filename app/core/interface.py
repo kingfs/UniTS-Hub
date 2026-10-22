@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Union
-import numpy as np
+from typing import Any, Dict, List
+
 
 class TimeSeriesModel(ABC):
     """
     Abstract base class for all time-series model adapters.
     """
-    
+
     @abstractmethod
     def load(self, model_path: str, device: str) -> None:
         """
