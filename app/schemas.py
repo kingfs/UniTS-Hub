@@ -124,12 +124,51 @@ class ChronosForecastResponse(QuantileForecastResponse):
     """Chronos-2 returns the canonical univariate quantile response."""
 
 
-class TimestralUnivariateForecastRequest(QuantileForecastRequest):
-    """Timestral single-series request; identical to the Chronos-2 request.
+TIMESTRAL_COVARIATE_FIELDS = (
+    "past_covariates",
+    "known_covariates",
+    "categorical_past_covariates",
+    "categorical_known_covariates",
+)
 
+TIMESTRAL_COVARIATE_ALIASES = ("future_covariates", "categorical_future_covariates")
+
+
+def _reject_top_level_covariates(data: Any) -> Any:
+    """Reject covariate maps outside ``series[]`` instead of silently dropping them."""
+    if isinstance(data, dict):
+        found = [name for name in (*TIMESTRAL_COVARIATE_FIELDS, *TIMESTRAL_COVARIATE_ALIASES) if name in data]
+        if found:
+            raise ValueError(
+                "Covariates must be nested under each item in `series`; "
+                f"top-level {', '.join(found)} is not supported. "
+                "Use forecast_with_covariates and put covariates inside the series item."
+            )
+    return data
+
+
+class TimestralUnivariateForecastRequest(QuantileForecastRequest):
+    """Timestral single-series request, extending the Chronos-2 contract.
+
+    It adds Timestral's `symmetric_averaging` / `clip_nonnegative` switches.
     `quantiles` must be a subset of the active checkpoint's knots; the runtime
-    rejects levels the checkpoint does not expose.
+    rejects levels the checkpoint does not expose. A covariate map at the top level
+    is rejected instead of being silently dropped by this target-only route.
     """
+
+    symmetric_averaging: bool = Field(
+        default=True,
+        description="Average the forecast with the reflected forecast of the negated context (upstream default).",
+    )
+    clip_nonnegative: bool = Field(
+        default=True,
+        description="Clamp forecasts to non-negative when the observed context is non-negative.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _covariates_must_be_nested(cls, data: Any) -> Any:
+        return _reject_top_level_covariates(data)
 
 
 class TimestralUnivariateForecastResponse(QuantileForecastResponse):
@@ -171,14 +210,6 @@ class KronosGeneratePathsRequest(BaseModel):
 class KronosGeneratePathsResponse(BaseModel):
     symbol: Optional[str] = None
     paths: List[List[Candle]]
-
-
-TIMESTRAL_COVARIATE_FIELDS = (
-    "past_covariates",
-    "known_covariates",
-    "categorical_past_covariates",
-    "categorical_known_covariates",
-)
 
 
 def _wrap_matrix(value: Any) -> Any:
@@ -328,6 +359,11 @@ class TimestralForecastRequest(BaseModel):
         default=True,
         description="Clamp predictions at zero when the observed context is entirely non-negative.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _covariates_must_be_nested(cls, data: Any) -> Any:
+        return _reject_top_level_covariates(data)
 
     @model_validator(mode="before")
     @classmethod

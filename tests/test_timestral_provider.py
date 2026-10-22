@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
 pytest.importorskip("timestral", reason="Timestral runtime is optional; install it to run these tests.")
@@ -83,6 +84,13 @@ def test_descriptor_advertises_real_capabilities(provider: TimestralProvider) ->
     assert descriptor.metadata["point_forecast"] == "median"
     assert descriptor.metadata["supports_known_covariates"] is True
     assert descriptor.metadata["available_quantiles"] == list(KNOTS)
+    assert descriptor.input_modes == ["univariate", "multivariate", "covariates"]
+
+
+def test_unloaded_descriptor_does_not_advertise_covariates() -> None:
+    descriptor = TimestralProvider().descriptor()
+    assert descriptor.input_modes == ["univariate", "multivariate"]
+    assert [task.name for task in descriptor.tasks] == ["forecast_quantile"]
 
 
 def test_univariate_quantile_forecast(provider: TimestralProvider) -> None:
@@ -191,6 +199,69 @@ def test_categorical_covariates_are_accepted(provider: TimestralProvider) -> Non
         },
     )
     assert len(output["forecasts"][0]["mean"]) == horizon
+
+
+def test_large_categorical_codes_keep_full_precision(provider: TimestralProvider) -> None:
+    context = series(24)
+    horizon = 3
+    # float32 cannot represent every integer above 2**24; the runtime encodes
+    # categorical codes in float64, so the provider must not downcast them.
+    codes = [float(2**26 + index % 3) for index in range(len(context))]
+    output = provider.invoke(
+        "forecast_with_covariates",
+        {
+            "series": [{"target": [context], "categorical_past_covariates": [codes]}],
+            "horizon": horizon,
+        },
+    )
+    direct = provider.forecaster.forecast(
+        np.asarray([context], dtype=np.float32)[None, :, :],
+        prediction_length=horizon,
+        categorical_past_covariates=np.asarray([codes], dtype=np.float64)[None, :, :],
+    )
+    assert np.allclose(
+        output["forecasts"][0]["quantiles"]["0.5"],
+        direct.quantile(0.5).numpy()[0],
+        atol=1e-5,
+    )
+
+
+def test_top_level_covariates_are_rejected(provider: TimestralProvider) -> None:
+    context = series(20)
+    with pytest.raises(ValidationError, match="Covariates must be nested"):
+        provider.invoke(
+            "forecast_with_covariates",
+            {
+                "series": [{"target": [context], "past_covariates": [series(20)]}],
+                "horizon": 2,
+                "past_covariates": [series(20)],
+            },
+        )
+
+
+def test_benign_extra_fields_are_ignored(provider: TimestralProvider) -> None:
+    context = series(20)
+    output = provider.invoke(
+        "forecast_quantile",
+        {"series": [{"target": [context]}], "horizon": 2, "frequency": "h"},
+    )
+    assert len(output["forecasts"][0]["mean"]) == 2
+
+
+def test_covariate_aliases_are_rejected_by_target_only_task(provider: TimestralProvider) -> None:
+    with pytest.raises(ValueError, match="forecast_with_covariates"):
+        provider.invoke(
+            "forecast_quantile",
+            {
+                "series": [
+                    {
+                        "target": [series(20)],
+                        "future_covariates": [series(20)],
+                    }
+                ],
+                "horizon": 2,
+            },
+        )
 
 
 def test_batch_with_different_lengths_is_supported(provider: TimestralProvider) -> None:

@@ -255,6 +255,20 @@ def test_timestral_model_route_matches_chronos_contract():
         assert body["quantiles"]["0.9"] == [1.0, 2.0]
 
 
+def test_timestral_simple_route_rejects_covariate_fields():
+    with create_test_client("timestral", ["forecast_quantile", "forecast_with_covariates"]) as client:
+        response = client.post(
+            "/timestral/forecast",
+            headers=AUTH,
+            json={
+                "series": [1.0, 2.0, 3.0],
+                "horizon": 2,
+                "past_covariates": [[0.0, 1.0, 0.0]],
+            },
+        )
+        assert response.status_code == 422
+
+
 def test_timestral_batch_route():
     with create_test_client("timestral", ["forecast_quantile", "forecast_with_covariates"]) as client:
         response = client.post(
@@ -506,5 +520,9 @@ def test_mcp_initialize():
 
 
 def test_quantile_models_share_univariate_contract():
-    assert ChronosForecastRequest.model_fields.keys() == TimestralUnivariateForecastRequest.model_fields.keys()
+    chronos_fields = set(ChronosForecastRequest.model_fields)
+    timestral_fields = set(TimestralUnivariateForecastRequest.model_fields)
+    # Timestral extends the canonical request with its averaging/clipping switches.
+    assert chronos_fields <= timestral_fields
+    assert timestral_fields - chronos_fields == {"symmetric_averaging", "clip_nonnegative"}
     assert ChronosForecastResponse.model_fields.keys() == TimestralUnivariateForecastResponse.model_fields.keys()

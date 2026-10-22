@@ -30,7 +30,6 @@ def _download(name: str, repo_id: str) -> None:
     snapshot_download(
         repo_id=repo_id,
         local_dir=save_path,
-        local_dir_use_symlinks=False,
         ignore_patterns=["*.msgpack", "*.h5", "*.ot"],
         allow_patterns=ALLOW_PATTERNS.get(name),
     )

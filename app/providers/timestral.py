@@ -9,6 +9,7 @@ import torch
 
 from app.providers.base import ModelProvider
 from app.schemas import (
+    TIMESTRAL_COVARIATE_ALIASES,
     TIMESTRAL_COVARIATE_FIELDS,
     ModelDescriptor,
     TaskDefinition,
@@ -24,15 +25,15 @@ def _level_key(level: float) -> str:
     return f"{level:g}"
 
 
-def _to_matrix(rows: Sequence[Sequence[Any]]) -> np.ndarray:
-    """Convert a validated (rows, time) payload to float32, mapping null to NaN."""
+def _to_matrix(rows: Sequence[Sequence[Any]], dtype: Any = np.float32) -> np.ndarray:
+    """Convert a validated (rows, time) payload to `dtype`, mapping null to NaN."""
     return np.array(
         [[np.nan if value is None else float(value) for value in row] for row in rows],
-        dtype=np.float32,
+        dtype=dtype,
     )
 
 
-def _stack_covariates(items: Sequence[Any], name: str, width: int) -> np.ndarray | None:
+def _stack_covariates(items: Sequence[Any], name: str, width: int, dtype: Any = np.float32) -> np.ndarray | None:
     """Right-align per-series covariate matrices into one (batch, channels, width) array.
 
     Series in a batch may have different context lengths; Timestral treats NaN as missing,
@@ -42,22 +43,21 @@ def _stack_covariates(items: Sequence[Any], name: str, width: int) -> np.ndarray
     if not first:
         return None
     channels = len(first)
-    stacked = np.full((len(items), channels, width), np.nan, dtype=np.float32)
+    stacked = np.full((len(items), channels, width), np.nan, dtype=dtype)
     for index, item in enumerate(items):
-        matrix = _to_matrix(getattr(item, name) or [])
+        matrix = _to_matrix(getattr(item, name) or [], dtype=dtype)
         stacked[index, :, width - matrix.shape[1] :] = matrix
     return stacked
 
 
 def _payload_has_covariates(payload: Dict[str, Any]) -> bool:
     """Detect covariate fields before validation, so the error can point at the right task."""
-    if any(name in payload for name in TIMESTRAL_COVARIATE_FIELDS):
+    keys = (*TIMESTRAL_COVARIATE_FIELDS, *TIMESTRAL_COVARIATE_ALIASES)
+    if any(name in payload for name in keys):
         return True
     series = payload.get("series")
     if isinstance(series, (list, tuple)):
-        return any(
-            isinstance(item, dict) and any(name in item for name in TIMESTRAL_COVARIATE_FIELDS) for item in series
-        )
+        return any(isinstance(item, dict) and any(name in item for name in keys) for item in series)
     return False
 
 
@@ -161,6 +161,10 @@ class TimestralProvider(ModelProvider):
                 }
             )
 
+        input_modes = ["univariate", "multivariate"]
+        if self.supports_covariates:
+            input_modes.append("covariates")
+
         return ModelDescriptor(
             id="timestral",
             name="Timestral",
@@ -169,7 +173,7 @@ class TimestralProvider(ModelProvider):
                 "Mistral Timestral: causal patch transformer for multivariate probabilistic "
                 "forecasting with past-only and known-future covariates."
             ),
-            input_modes=["univariate", "multivariate", "covariates"],
+            input_modes=input_modes,
             output_modes=["quantile_forecast"],
             tasks=tasks,
             metadata=metadata,
@@ -190,6 +194,16 @@ class TimestralProvider(ModelProvider):
         # The legacy contract asks for a point forecast; the median is Timestral's
         # canonical point forecast, so /predict can be served faithfully.
         return "forecast_quantile"
+
+    def legacy_predict(
+        self,
+        history: List[List[float]],
+        horizon: int,
+        parameters: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        # Legacy /predict may pass `frequency`; Timestral has no frequency
+        # conditioning, and the strict request schema would reject it.
+        return super().legacy_predict(history, horizon, {})
 
     def invoke(self, task: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if self.forecaster is None:
@@ -281,8 +295,12 @@ class TimestralProvider(ModelProvider):
 
         past_covariates = _stack_covariates(items, "past_covariates", max_context)
         known_covariates = _stack_covariates(items, "known_covariates", max_context + request.horizon)
-        categorical_past = _stack_covariates(items, "categorical_past_covariates", max_context)
-        categorical_known = _stack_covariates(items, "categorical_known_covariates", max_context + request.horizon)
+        # Categorical codes must stay exact: distinct codes above 2**24 are not
+        # representable in float32, and the runtime target-encodes them in float64.
+        categorical_past = _stack_covariates(items, "categorical_past_covariates", max_context, dtype=np.float64)
+        categorical_known = _stack_covariates(
+            items, "categorical_known_covariates", max_context + request.horizon, dtype=np.float64
+        )
 
         forecast = self.forecaster.forecast(
             context,

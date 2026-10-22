@@ -324,6 +324,13 @@ uvx ruff@0.17.1 format --check app tests scripts
 uv run --extra timestral pytest
 ```
 
+Real-checkpoint Timestral integration tests are opt-in because the 209M weights are not
+downloaded in CI:
+
+```bash
+TIMESTRAL_REAL_MODEL=$PWD/models/timestral uv run --extra timestral pytest tests/test_timestral_real_model.py
+```
+
 ## Deployed API smoke test
 
 After you start one model container, you can validate the live service with:
